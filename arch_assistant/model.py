@@ -1,4 +1,4 @@
-"""Datové typy: nález kontroly, akce, výsledek akce, shrnutí."""
+"""Data types: check finding, action, action result, summary."""
 from __future__ import annotations
 
 import json
@@ -33,18 +33,18 @@ class Finding:
 
     @classmethod
     def from_json(cls, text: str) -> Finding:
-        """Načte nález z JSON kontraktu kontroly; chybějící pole nebo neznámá severity = ValueError."""
+        """Parse a finding from the check JSON contract; missing fields or unknown severity raise ValueError."""
         try:
             d = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(f"nevalidní JSON: {e}") from e
+            raise ValueError(f"invalid JSON: {e}") from e
         if not isinstance(d, dict):
-            raise ValueError("JSON není objekt")
+            raise ValueError("JSON is not an object")
         missing = [k for k in ("id", "severity", "title") if k not in d]
         if missing:
-            raise ValueError(f"chybí pole {', '.join(missing)}")
+            raise ValueError(f"missing fields {', '.join(missing)}")
         if d["severity"] not in SEVERITIES:
-            raise ValueError(f"neznámá severity {d['severity']!r}")
+            raise ValueError(f"unknown severity {d['severity']!r}")
         return cls(
             id=str(d["id"]),
             severity=d["severity"],
@@ -56,8 +56,8 @@ class Finding:
 
     @classmethod
     def failed(cls, check_id: str, error: str) -> Finding:
-        first = error.strip().splitlines()[0] if error.strip() else "bez výstupu"
-        return cls(id=check_id, severity="low", title=f"Kontrola {check_id} selhala",
+        first = error.strip().splitlines()[0] if error.strip() else "no output"
+        return cls(id=check_id, severity="low", title=f"Check {check_id} failed",
                    summary=first, error=error)
 
     @property

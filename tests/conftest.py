@@ -1,4 +1,4 @@
-"""Společné fixture: falešné příkazy v PATH (shim) a spouštění kontrol z repa."""
+"""Shared fixtures: fake commands on PATH (shim) and running checks from the repo."""
 from __future__ import annotations
 
 import os
@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 class Shim:
-    """Zapisuje spustitelné skripty do dočasného bin adresáře, který je první v PATH."""
+    """Writes executable scripts into a temporary bin dir that is first on PATH."""
 
     def __init__(self, bin_dir: Path, monkeypatch: pytest.MonkeyPatch):
         self.bin_dir = bin_dir
@@ -25,7 +25,7 @@ class Shim:
         self.calls_file = bin_dir / "calls.log"
 
     def cmd(self, name: str, stdout: str = "", exit_code: int = 0, stderr: str = "", script: str | None = None) -> Path:
-        """Příkaz, který zaloguje své argumenty a vypíše pevný výstup; `script` = vlastní tělo (bash)."""
+        """A command that logs its arguments and prints fixed output; `script` = custom bash body."""
         body = script if script is not None else (
             f"printf '%s' {shlex.quote(stdout)}\n"
             + (f"printf '%s' {shlex.quote(stderr)} >&2\n" if stderr else "")
@@ -55,7 +55,7 @@ class CheckRunner:
         cfg = load_config(self.tmp_path / "cfg", self.state_dir)
         full_env = {**check_env(cfg), **(env or {})}
         scripts = [p for p in (REPO / "checks").glob(f"{check_id}.*") if p.suffix in (".sh", ".py")]
-        assert scripts, f"kontrola {check_id} v repu neexistuje"
+        assert scripts, f"check {check_id} does not exist in the repo"
         return run_check(scripts[0], full_env, timeout=timeout)
 
 

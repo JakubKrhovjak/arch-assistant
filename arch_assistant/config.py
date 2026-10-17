@@ -1,4 +1,4 @@
-"""Konfigurace: config.toml (prahy, model), actions.toml (režimy akcí), prostředí pro kontroly."""
+"""Configuration: config.toml (thresholds, model), actions.toml (action modes), environment for checks."""
 from __future__ import annotations
 
 import os
@@ -76,22 +76,22 @@ def load_config(config_dir: Path | None = None, state_dir: Path | None = None) -
 
 
 def set_action_mode(config_dir: Path, action_id: str, mode: Mode) -> None:
-    """Zapíše režim akce do actions.toml (jen řádky `id = "mode"`, bez knihovny)."""
+    """Write an action mode to actions.toml (plain `id = "mode"` lines, no library needed)."""
     if mode not in MODES:
-        raise ValueError(f"neznámý režim {mode!r}")
+        raise ValueError(f"unknown mode {mode!r}")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", action_id):
-        raise ValueError(f"nepovolené id akce {action_id!r}")
+        raise ValueError(f"invalid action id {action_id!r}")
     config_dir.mkdir(parents=True, exist_ok=True)
     path = config_dir / "actions.toml"
     modes = {k: v for k, v in _read_toml(path).items() if v in MODES}
     modes[action_id] = mode
-    lines = ["# Režimy akcí Arch Assistanta: ask / auto / never (zapisuje aplikace)"]
+    lines = ["# Arch Assistant action modes: ask / auto / never (written by the app)"]
     lines += [f'{k} = "{v}"' for k, v in sorted(modes.items())]
     path.write_text("\n".join(lines) + "\n")
 
 
 def check_env(cfg: Config) -> dict[str, str]:
-    """Proměnné AA_* pro kontrolní skripty."""
+    """AA_* environment variables for check scripts."""
     t = cfg.thresholds
 
     def num(x: float) -> str:

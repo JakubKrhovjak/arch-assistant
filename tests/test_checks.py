@@ -20,7 +20,7 @@ def test_run_check_parses_output(tmp_path):
 def test_run_check_invalid_json_is_failed_finding(tmp_path):
     p = _script(tmp_path, "bad.sh", "echo nope\n")
     f = run_check(p, {})
-    assert f.title == "Kontrola bad selhala"
+    assert f.title == "Check bad failed"
     assert "nope" in f.error
 
 

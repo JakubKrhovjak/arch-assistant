@@ -27,7 +27,7 @@ def test_from_json_rejects_missing_id():
 def test_failed_finding():
     f = Finding.failed("updates", "boom\nmore")
     assert (f.severity, f.title, f.summary, f.error) == (
-        "low", "Kontrola updates selhala", "boom", "boom\nmore")
+        "low", "Check updates failed", "boom", "boom\nmore")
 
 
 def test_is_empty():

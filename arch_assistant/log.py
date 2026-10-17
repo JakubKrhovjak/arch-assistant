@@ -1,4 +1,4 @@
-"""Logování do ~/.local/state/arch-assistant/log/assistant.log s rotací."""
+"""Rotating log in ~/.local/state/arch-assistant/log/assistant.log."""
 from __future__ import annotations
 
 import logging

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Jazyk UI, notifikací, názvů akcí a komentářů: **čeština**. Identifikátory v kódu anglicky.
+- Jazyk UI, notifikací, názvů akcí, komentářů, README a výstupů skriptů: **angličtina** (rozhodnutí uživatele 2026-10-17, přebíjí české texty uvedené dál v plánu – kde plán cituje český text, použij anglický ekvivalent; testy kontrolují anglické řetězce). Shrnutí od Claude také anglicky.
 - Model výchozí `claude-haiku-5-5`, volitelně `claude-sonnet-5-5`; `max_tokens` 1024; `output_config={"effort": "low"}`; **jedno volání na běh, jen když existuje nový nález**; bez klíče šablony.
 - Klíč API jen z `api_key_file` (výchozí `~/.config/zsh/secrets.zsh`, řádek `ANTHROPIC_API_KEY=…`); nikdy do konfigurace, stavu ani logu.
 - Root přes existující `sudo` bez hesla; všechny příkazy pod `sudo` s absolutní cestou a pevnými argumenty.

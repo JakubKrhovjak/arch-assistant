@@ -1,4 +1,4 @@
-"""Stav mezi běhy: co bylo hlášeno a odmítnuto, baseline kontrol, deduplikace nálezů."""
+"""State between runs: what was reported and declined, check baselines, finding deduplication."""
 from __future__ import annotations
 
 import hashlib
@@ -17,7 +17,7 @@ EMPTY: dict = {
 
 
 def fingerprint(f: Finding) -> str:
-    """Otisk nálezu: id, titulek, shrnutí a jména položek (velikosti se neberou v úvahu)."""
+    """Finding fingerprint: id, title, summary and item names (sizes are ignored)."""
     names = sorted(
         str(i["name"]) if "name" in i else json.dumps({k: v for k, v in i.items() if k != "size_mb"}, sort_keys=True)
         for i in f.items
@@ -53,7 +53,7 @@ class State:
         tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=1))
         tmp.rename(self.path)
 
-    # --- deduplikace -------------------------------------------------------
+    # --- deduplication -------------------------------------------------------
 
     def should_report(self, f: Finding, cfg: Config, now: datetime) -> bool:
         if f.is_empty:
@@ -69,7 +69,7 @@ class State:
         return now - datetime.fromisoformat(rep["at"]) >= timedelta(days=cfg.thresholds["report_days"])
 
     def _should_report_updates(self, f: Finding, cfg: Config, now: datetime) -> bool:
-        """Zásadní balíček nový oproti poslednímu hlášení, nebo >= update_min_count, nebo report_days."""
+        """A critical package new since the last report, or >= update_min_count, or report_days elapsed."""
         last = self.data.get("last_update_report") or {"at": None, "names": []}
         names = _names(f)
         new_critical = _critical(names, cfg.critical_packages) - _critical(last["names"], cfg.critical_packages)
@@ -84,7 +84,7 @@ class State:
     def new_findings(self, findings: list[Finding], cfg: Config, now: datetime) -> list[Finding]:
         return [f for f in findings if self.should_report(f, cfg, now)]
 
-    # --- zápisy -------------------------------------------------------------
+    # --- writes -------------------------------------------------------------
 
     def mark_reported(self, f: Finding, now: datetime) -> None:
         self.data["reported"][f.id] = {"fp": fingerprint(f), "at": now.isoformat()}

@@ -1,7 +1,7 @@
 [project]
 name = "arch-assistant"
 version = "0.1.0"
-description = "Tray asistent pro Arch Linux + Plasma: aktualizace, zdraví systému, úklid, shrnutí přes Claude"
+description = "Tray assistant for Arch Linux + Plasma: updates, system health, cleanup, Claude summaries"
 requires-python = ">=3.13"
 dependencies = ["anthropic>=1.0", "pydantic>=2"]
 

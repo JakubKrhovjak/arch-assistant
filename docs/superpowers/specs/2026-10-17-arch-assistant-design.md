@@ -38,7 +38,7 @@ Claude (API) se používá **jen** na převod surových nálezů do srozumiteln�
 - Root pouze přes pravidlo v sudoers pro přesně vyjmenované příkazy (rozhodnutí uživatele, § 4). Žádný pkexec, žádné ptaní na heslo za běhu.
 - Spuštění ve stejném sezení jako Plasma (potřebuje D-Bus sezení pro tray a notifikace).
 - Claude API: klíč nebo profil uživatele; nástroj musí fungovat i bez něj (šablonový text místo shrnutí).
-- Jazyk uživatelského rozhraní a notifikací: čeština.
+- Jazyk uživatelského rozhraní, notifikací, komentářů v kódu a README: **angličtina** (rozhodnutí uživatele 2026-10-17; původně čeština).
 
 ## 4. Rozhodnutí uživatele
 

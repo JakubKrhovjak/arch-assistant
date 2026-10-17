@@ -1,4 +1,4 @@
-"""Hledání a paralelní běh kontrolních skriptů (checks/<id>.sh | .py) s JSON kontraktem."""
+"""Discovery and parallel execution of check scripts (checks/<id>.sh | .py) with the JSON contract."""
 from __future__ import annotations
 
 import os
@@ -15,7 +15,7 @@ CHECK_SUFFIXES = (".sh", ".py")
 
 
 def discover_checks(checks_dir: Path, only: Iterable[str] | None = None) -> list[Path]:
-    """Skripty kontrol seřazené podle jména; soubory začínající `_` jsou pomocné moduly, ne kontroly."""
+    """Check scripts sorted by name; files starting with `_` are helper modules, not checks."""
     wanted = set(only) if only is not None else None
     return sorted(
         p for p in checks_dir.iterdir()
@@ -35,7 +35,7 @@ def _command(script: Path) -> list[str]:
 
 
 def run_check(script: Path, env: dict[str, str], timeout: float = 60) -> Finding:
-    """Spustí jednu kontrolu; cokoli jiného než validní JSON na stdout = nález „kontrola selhala“."""
+    """Run one check; anything but valid JSON on stdout becomes a "check failed" finding."""
     check_id = script.stem
     try:
         proc = subprocess.run(
@@ -43,14 +43,14 @@ def run_check(script: Path, env: dict[str, str], timeout: float = 60) -> Finding
             env={**os.environ, **env}, check=False,
         )
     except subprocess.TimeoutExpired:
-        return Finding.failed(check_id, f"timeout po {timeout:g} s")
+        return Finding.failed(check_id, f"timeout after {timeout:g} s")
     except OSError as e:
-        return Finding.failed(check_id, f"nelze spustit: {e}")
+        return Finding.failed(check_id, f"cannot start: {e}")
     if proc.returncode != 0:
-        detail = proc.stderr.strip() or proc.stdout.strip() or f"návratový kód {proc.returncode}"
+        detail = proc.stderr.strip() or proc.stdout.strip() or f"exit code {proc.returncode}"
         return Finding.failed(check_id, detail)
     if not proc.stdout.strip():
-        return Finding.failed(check_id, "prázdný výstup" + (f"\n{proc.stderr.strip()}" if proc.stderr.strip() else ""))
+        return Finding.failed(check_id, "empty output" + (f"\n{proc.stderr.strip()}" if proc.stderr.strip() else ""))
     try:
         return Finding.from_json(proc.stdout)
     except ValueError as e:

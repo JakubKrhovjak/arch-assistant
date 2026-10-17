@@ -25,7 +25,7 @@ def finding(id="orphans", items=(), severity="low", summary="S"):
 
 def updates(*names):
     return Finding("updates", "low", "Aktualizace", "", tuple({"name": n} for n in names),
-                   (Action("update", "Aktualizovat systém"),))
+                   (Action("update", "Update system"),))
 
 
 def test_report_first_time_then_not_again(state, cfg):
