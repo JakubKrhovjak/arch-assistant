@@ -45,13 +45,19 @@ class Finding:
             raise ValueError(f"missing fields {', '.join(missing)}")
         if d["severity"] not in SEVERITIES:
             raise ValueError(f"unknown severity {d['severity']!r}")
+        items = d.get("items") or []
+        actions = d.get("actions") or []
+        if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+            raise ValueError("items must be a list of objects")
+        if not isinstance(actions, list) or not all(isinstance(a, dict) and "id" in a for a in actions):
+            raise ValueError("actions must be a list of objects with an id")
         return cls(
             id=str(d["id"]),
             severity=d["severity"],
             title=str(d["title"]),
             summary=str(d.get("summary", "")),
-            items=tuple(dict(i) for i in d.get("items", [])),
-            actions=tuple(Action.from_dict(a) for a in d.get("actions", [])),
+            items=tuple(dict(i) for i in items),
+            actions=tuple(Action.from_dict(a) for a in actions),
         )
 
     @classmethod

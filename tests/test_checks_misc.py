@@ -122,7 +122,7 @@ esac
     assert ("vm-overlay", str(vm / "c.qcow2")) in kinds
     assert ("volume", "docker volumes") not in kinds
     assert f.actions == ()
-    assert any(c.startswith(f"sudo /usr/bin/qemu-img info --backing-chain {vm}/a.qcow2") for c in shim.calls())
+    assert any(c.startswith(f"sudo /usr/bin/qemu-img info -U --backing-chain {vm}/a.qcow2") for c in shim.calls())
 
 
 def test_docker_vm_none(shim, check_runner, tmp_path):

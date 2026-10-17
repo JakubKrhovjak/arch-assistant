@@ -6,11 +6,12 @@ set -uo pipefail
 
 esp="${AA_ESP:-$(bootctl -p 2>/dev/null || echo /boot/efi)}"
 state_dir="${AA_STATE_DIR:-.}"
-verify=$(sudo /usr/bin/sbctl verify 2>&1 || true)
+verify=$(sudo /usr/bin/sbctl verify 2>&1)
+verify_rc=$?
 # the ESP is usually mounted root-only, so list it through sudo
 ukis=$(sudo /usr/bin/find "$esp/EFI/Linux" -maxdepth 1 -name '*.efi' 2>/dev/null || true)
 
-ESP="$esp" STATE_DIR="$state_dir" VERIFY="$verify" UKIS="$ukis" python3 - <<'PY'
+ESP="$esp" STATE_DIR="$state_dir" VERIFY="$verify" VERIFY_RC="$verify_rc" UKIS="$ukis" python3 - <<'PY'
 import json, os
 from pathlib import Path
 
@@ -23,6 +24,12 @@ fix = "Fix manually: sbctl sign -s <file>, see custom-arch-setup-script/pc/secur
 def out(**kw):
     print(json.dumps({"id": "secure-boot", "actions": [], **kw}))
 
+# the guard fails closed: a verify that did not run or found nothing signed is treated as broken
+if os.environ["VERIFY_RC"] != "0" or (not signed and not unsigned):
+    first = (verify.strip().splitlines() or ["no output"])[-1][:160]
+    out(severity="critical", title="sbctl verify failed, Secure Boot state unknown",
+        summary=f"sbctl verify exited with {os.environ['VERIFY_RC']}: {first}. {fix}", items=[{"name": "sbctl verify"}])
+    raise SystemExit
 if not ukis:
     out(severity="critical", title=f"No UKI found in {esp}/EFI/Linux", summary=f"The system will not boot. {fix}",
         items=[{"name": f"{esp}/EFI/Linux"}])

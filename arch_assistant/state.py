@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import threading
 from datetime import datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
@@ -26,34 +28,41 @@ def fingerprint(f: Finding) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _names(f: Finding) -> list[str]:
-    return [str(i.get("name", "")) for i in f.items]
+def _pkgs(f: Finding) -> dict[str, str]:
+    """name -> pending version for an updates finding."""
+    return {str(i.get("name", "")): str(i.get("new", "")) for i in f.items}
 
 
-def _critical(names: list[str], patterns: list[str]) -> set[str]:
-    return {n for n in names if any(fnmatch(n, p) for p in patterns)}
+def _critical(pkgs: dict[str, str], patterns: list[str]) -> set[tuple[str, str]]:
+    return {(n, v) for n, v in pkgs.items() if any(fnmatch(n, p) for p in patterns)}
 
 
 class State:
     def __init__(self, path: Path):
         self.path = path
         self.data: dict = json.loads(json.dumps(EMPTY))
+        self._lock = threading.RLock()
 
     def load(self) -> State:
-        if self.path.is_file():
-            try:
-                self.data = {**json.loads(json.dumps(EMPTY)), **json.loads(self.path.read_text())}
-            except (json.JSONDecodeError, OSError):
-                pass
+        with self._lock:
+            if self.path.is_file():
+                try:
+                    self.data = {**json.loads(json.dumps(EMPTY)), **json.loads(self.path.read_text())}
+                except (json.JSONDecodeError, OSError):
+                    pass
         return self
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=1))
-        tmp.rename(self.path)
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=1))
+            tmp.rename(self.path)
 
-    # --- deduplication -------------------------------------------------------
+    # --- deduplication -----------------------------------------------------
+
+    def is_declined(self, f: Finding) -> bool:
+        return self.data["declined"].get(f.id) == fingerprint(f)
 
     def should_report(self, f: Finding, cfg: Config, now: datetime) -> bool:
         if f.is_empty:
@@ -69,13 +78,13 @@ class State:
         return now - datetime.fromisoformat(rep["at"]) >= timedelta(days=cfg.thresholds["report_days"])
 
     def _should_report_updates(self, f: Finding, cfg: Config, now: datetime) -> bool:
-        """A critical package new since the last report, or >= update_min_count, or report_days elapsed."""
-        last = self.data.get("last_update_report") or {"at": None, "names": []}
-        names = _names(f)
-        new_critical = _critical(names, cfg.critical_packages) - _critical(last["names"], cfg.critical_packages)
-        if new_critical:
+        """A critical (name, version) new since the last report, or >= update_min_count packages in a
+        different batch than last reported, or report_days elapsed. A completed update resets the record."""
+        last = self.data.get("last_update_report") or {"at": None, "pkgs": {}}
+        pkgs, last_pkgs = _pkgs(f), dict(last.get("pkgs", {}))
+        if _critical(pkgs, cfg.critical_packages) - _critical(last_pkgs, cfg.critical_packages):
             return True
-        if len(names) >= cfg.thresholds["update_min_count"] and len(names) > len(last["names"]):
+        if len(pkgs) >= cfg.thresholds["update_min_count"] and set(pkgs.items()) != set(last_pkgs.items()):
             return True
         if last["at"] is None:
             return False
@@ -87,12 +96,16 @@ class State:
     # --- writes -------------------------------------------------------------
 
     def mark_reported(self, f: Finding, now: datetime) -> None:
-        self.data["reported"][f.id] = {"fp": fingerprint(f), "at": now.isoformat()}
-        if f.id == "updates":
-            self.data["last_update_report"] = {"at": now.isoformat(), "names": _names(f)}
+        with self._lock:
+            self.data["reported"][f.id] = {"fp": fingerprint(f), "at": now.isoformat()}
+            if f.id == "updates":
+                self.data["last_update_report"] = {"at": now.isoformat(), "pkgs": _pkgs(f)}
 
     def mark_declined(self, f: Finding) -> None:
-        self.data["declined"][f.id] = fingerprint(f)
+        with self._lock:
+            self.data["declined"][f.id] = fingerprint(f)
 
     def mark_update_run(self, now: datetime) -> None:
-        self.data["last_update_run"] = now.isoformat()
+        with self._lock:
+            self.data["last_update_run"] = now.isoformat()
+            self.data["last_update_report"] = None

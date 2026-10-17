@@ -65,6 +65,7 @@ def test_cycle_ask_creates_pending(env):
 def test_cycle_auto_runs_action_and_post_hooks(env):
     cfg, state = env
     cfg.actions["update"] = "auto"
+    _check(cfg.checks_dir, "arch-news", severity="none")
     _check(cfg.checks_dir, "updates", "high", items=[{"name": "linux"}], actions=["update"])
     _check(cfg.checks_dir, "secure-boot", severity="none")
     _check(cfg.checks_dir, "reboot-needed", severity="medium")
@@ -80,6 +81,7 @@ def test_cycle_auto_runs_action_and_post_hooks(env):
 def test_cycle_post_hooks_run_even_when_action_fails(env):
     cfg, state = env
     cfg.actions["update"] = "auto"
+    _check(cfg.checks_dir, "arch-news", severity="none")
     _check(cfg.checks_dir, "updates", "high", items=[{"name": "linux"}], actions=["update"])
     _check(cfg.checks_dir, "secure-boot", severity="critical")
     _check(cfg.checks_dir, "reboot-needed", severity="none")
@@ -93,6 +95,7 @@ def test_cycle_post_hooks_run_even_when_action_fails(env):
 def test_cycle_auto_blocked_by_reason(env):
     cfg, state = env
     cfg.actions["update"] = "auto"
+    _check(cfg.checks_dir, "arch-news", severity="none")
     _check(cfg.checks_dir, "updates", "high", items=[{"name": "qemu-desktop"}], actions=["update"])
     _script(cfg.actions_dir, "update.sh", "echo ran > ran.txt\n")
     r = _cycle(env, running_vms=lambda: ["win11-tia"]).run()

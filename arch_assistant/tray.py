@@ -5,25 +5,64 @@ import logging
 import subprocess
 import threading
 from pathlib import Path
+from typing import Callable
 
-from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtGui import QAction, QCursor, QIcon
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QIcon
+from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton, QSystemTrayIcon, QVBoxLayout
 
 from .config import REPO_ROOT, Config, set_action_mode
 from .cycle import Cycle, CycleResult, Pending
 from .model import ActionResult, Finding, Summary
-from .notify import BUTTON_MENU, BUTTONS_ASK, URGENCY_CRITICAL, URGENCY_NORMAL, Notifier, result_popup
+from .notify import BUTTONS_ASK, URGENCY_CRITICAL, URGENCY_NORMAL, Notifier, result_popup
 from .state import State
 from .summarizer import template_summary
 
 ASSETS = REPO_ROOT / "assets"
 ICONS = {"idle": "tray.svg", "attention": "tray-attention.svg", "busy": "tray-busy.svg"}
+NOTIFY_ICON = str(ASSETS / "tray.svg")
 EXAMPLE_CONFIG = ASSETS / "config.example.toml"
+BUTTON_ACTIONS: list[tuple[str, str]] = [("actions", "Show actions")]
+
+
+class PendingDialog(QDialog):
+    """One row per open action: label (+ confirmation reason), Run, No."""
+
+    def __init__(self, pending: list[Pending], on_run: Callable[[Pending], None],
+                 on_decline: Callable[[Pending], None], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Arch Assistant – pending actions")
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.labels: list[QLabel] = []
+        self.run_buttons: list[QPushButton] = []
+        self.decline_buttons: list[QPushButton] = []
+        layout = QVBoxLayout(self)
+        if not pending:
+            layout.addWidget(QLabel("No pending actions."))
+        for p in pending:
+            row = QHBoxLayout()
+            text = p.label + (f"\n⚠ {p.reason}" if p.reason else "")
+            label = QLabel(text)
+            label.setWordWrap(True)
+            run = QPushButton("Run")
+            no = QPushButton("No")
+            run.clicked.connect(lambda _c=False, p=p: (on_run(p), self.close()))
+            no.clicked.connect(lambda _c=False, p=p: (on_decline(p), self.close()))
+            row.addWidget(label, 1)
+            row.addWidget(run)
+            row.addWidget(no)
+            layout.addLayout(row)
+            self.labels.append(label)
+            self.run_buttons.append(run)
+            self.decline_buttons.append(no)
+        close = QPushButton("Close")
+        close.clicked.connect(self.close)
+        layout.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
+        self.resize(560, 120 + 60 * len(pending))
 
 
 class TrayApp(QObject):
-    cycle_finished = Signal(object)          # CycleResult | None
+    cycle_finished = Signal(object)                   # CycleResult | None
     action_finished = Signal(object, object, object)  # Pending, ActionResult, list[Finding]
 
     def __init__(self, cfg: Config, state: State, log: logging.Logger, api_key: str | None,
@@ -31,14 +70,17 @@ class TrayApp(QObject):
         super().__init__(parent)
         self.cfg, self.log = cfg, log
         self.cycle = Cycle(cfg, state, log, api_key)
-        self.notifier = notifier or Notifier()
+        self.notifier = notifier or Notifier(icon=NOTIFY_ICON)
+        self.notifier.icon = NOTIFY_ICON
         self.pending: list[Pending] = []
         self.busy = False
+        self.dialog: PendingDialog | None = None
 
         self.tray = QSystemTrayIcon(self._icon("idle"), self)
         self.tray.setToolTip("Arch Assistant")
         self.menu = QMenu()
         self.tray.setContextMenu(self.menu)
+        self.tray.activated.connect(self._on_tray_activated)
         self._rebuild_menu()
         self.tray.show()
 
@@ -64,22 +106,34 @@ class TrayApp(QObject):
         self.menu.clear()
         if self.pending:
             for p in self.pending:
-                act = QAction(p.label, self.menu)
+                act = QAction(p.label + (f"  (confirm: {p.reason})" if p.reason else ""), self.menu)
                 if p.reason:
                     act.setToolTip(p.reason)
-                    act.setText(f"{p.label}  (confirm: {p.reason})")
                 act.triggered.connect(lambda _c=False, p=p: self.run_pending(p))
                 self.menu.addAction(act)
             self.menu.addSeparator()
+            self.menu.addAction("Show actions…", self.show_actions)
         else:
             self.menu.addAction("No pending actions").setEnabled(False)
-            self.menu.addSeparator()
+        self.menu.addSeparator()
         self.menu.addAction("Check now", self.check_now)
         self.menu.addAction("Open log", self.open_log)
         self.menu.addAction("Settings", self.open_settings)
         self.menu.addSeparator()
         self.menu.addAction("Quit", QApplication.instance().quit)
         self._refresh_icon()
+
+    def _on_tray_activated(self, reason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.show_actions()
+
+    def show_actions(self) -> None:
+        if self.dialog is not None:
+            self.dialog.close()
+        self.dialog = PendingDialog(self.pending, on_run=self.run_pending, on_decline=self.decline)
+        self.dialog.show()
+        self.dialog.raise_()
+        self.dialog.activateWindow()
 
     # --- cycle -------------------------------------------------------------
 
@@ -89,8 +143,16 @@ class TrayApp(QObject):
             return
         self.busy = True
         self._refresh_icon()
-        threading.Thread(target=lambda: self.cycle_finished.emit(self.cycle.run()),
-                         name="aa-cycle", daemon=True).start()
+
+        def work():
+            try:
+                result = self.cycle.run()
+            except Exception:  # a crashed cycle must not leave the tray busy forever
+                self.log.exception("cycle crashed")
+                result = None
+            self.cycle_finished.emit(result)
+
+        threading.Thread(target=work, name="aa-cycle", daemon=True).start()
 
     def _on_cycle_finished(self, result: CycleResult | None) -> None:
         self.busy = False
@@ -99,15 +161,14 @@ class TrayApp(QObject):
             return
         for res in result.auto_run:
             self._popup_result(res, self._label_for(res, result.findings), [])
-        known = {(p.finding.id, p.action.id, p.action.args) for p in self.pending}
-        self.pending += [p for p in result.pending if (p.finding.id, p.action.id, p.action.args) not in known]
+        self.pending = list(result.pending)   # replaced wholesale: stale entries disappear, surviving ones stay
         self._rebuild_menu()
         if result.summary:
-            self._notify_summary(result.summary, result.pending, result.new)
+            self._notify_summary(result.summary, result.new_pending, result.new)
 
     def _notify_summary(self, summary: Summary, new_pending: list[Pending], new: list[Finding]) -> None:
         urgency = URGENCY_CRITICAL if any(f.severity == "critical" for f in new) else URGENCY_NORMAL
-        self.log.info("notify: %s (%d pending)", summary.headline, len(new_pending))
+        self.log.info("notify: %s (%d new pending)", summary.headline, len(new_pending))
         if len(new_pending) == 1:
             p = new_pending[0]
             body = summary.body + (f"\n\n{p.reason}" if p.reason else "")
@@ -116,15 +177,13 @@ class TrayApp(QObject):
                                on_closed=lambda: self.log.info("notification closed, %s stays pending", p.action.id),
                                urgency=urgency)
         elif new_pending:
-            self.notifier.send(summary, BUTTON_MENU, lambda key: self.menu.popup(QCursor.pos()), urgency=urgency)
+            self.notifier.send(summary, BUTTON_ACTIONS, lambda key: self.show_actions(), urgency=urgency)
         else:
             self.notifier.send(summary, [], lambda _k: None, urgency=urgency)
 
     def _on_button(self, key: str, p: Pending) -> None:
         if key == "no":
-            self.cycle.decline(p)
-            self._remove_pending(p)
-            self.log.info("declined %s for %s", p.action.id, p.finding.id)
+            self.decline(p)
         elif key in ("yes", "yes_auto"):
             if key == "yes_auto":
                 set_action_mode(self.cfg.config_dir, p.action.id, "auto")
@@ -134,15 +193,26 @@ class TrayApp(QObject):
 
     # --- actions -----------------------------------------------------------
 
+    def decline(self, p: Pending) -> None:
+        self.cycle.decline(p)
+        self._remove_pending(p)
+        self.log.info("declined %s for %s", p.action.id, p.finding.id)
+
     def run_pending(self, p: Pending) -> None:
         if self.busy:
             self.log.info("action %s requested while busy; stays pending", p.action.id)
+            self.notifier.send(Summary("Arch Assistant is busy", f"{p.action.label} stays in the menu, try again later.", []),
+                               [], lambda _k: None, timeout_ms=5000)
             return
         self.busy = True
         self._refresh_icon()
 
         def work():
-            res, extra = self.cycle.run_pending(p)
+            try:
+                res, extra = self.cycle.run_pending(p)
+            except Exception as e:  # a crashed action must not leave the tray busy forever
+                self.log.exception("action %s crashed", p.action.id)
+                res, extra = ActionResult(p.action.id, False, f"{p.action.label} crashed: {e}", "", 0.0), []
             self.action_finished.emit(p, res, extra)
 
         threading.Thread(target=work, name="aa-action", daemon=True).start()
@@ -159,12 +229,12 @@ class TrayApp(QObject):
         if notes:
             res = ActionResult(res.action_id, res.ok, res.output + "\n" + "\n".join(notes), res.detail, res.duration_s)
         result_popup(self.notifier, res, label)
-        if any(f.severity == "critical" for f in extra):
-            crit = [f for f in extra if f.severity == "critical"]
+        crit = [f for f in extra if f.severity == "critical"]
+        if crit:
             self.notifier.send(template_summary(crit), [], lambda _k: None, urgency=URGENCY_CRITICAL)
 
     def _remove_pending(self, p: Pending) -> None:
-        self.pending = [q for q in self.pending if q is not p]
+        self.pending = [q for q in self.pending if q.key != p.key]
         self._rebuild_menu()
 
     @staticmethod

@@ -56,13 +56,13 @@ def _news(packages):
 
 def test_needs_confirmation_qemu_with_running_vm():
     f = _updates("qemu-desktop", "vim")
-    reason = A.needs_confirmation(f.actions[0], f, [f], running_vms=lambda: ["win11-tia"])
+    reason = A.needs_confirmation(f.actions[0], f, [f, _news([])], running_vms=lambda: ["win11-tia"])
     assert reason and "win11-tia" in reason and "qemu-desktop" in reason
 
 
 def test_needs_confirmation_libvirt_with_running_vm():
     f = _updates("libvirt")
-    assert A.needs_confirmation(f.actions[0], f, [f], running_vms=lambda: ["vm"])
+    assert "vm" in A.needs_confirmation(f.actions[0], f, [f, _news([])], running_vms=lambda: ["vm"])
 
 
 def test_needs_confirmation_arch_news_match():
@@ -102,9 +102,9 @@ def test_effective_mode_never_auto(tmp_path):
     assert A.effective_mode("remove-package", cfg) == "never"
 
 
-def test_running_vms_without_virsh_is_empty(shim):
+def test_running_vms_failure_is_unknown(shim):
     shim.cmd("virsh", "", exit_code=1, stderr="error: failed to connect")
-    assert A.running_vms() == []
+    assert A.running_vms() is None
 
 
 def test_running_vms_parses_names(shim):

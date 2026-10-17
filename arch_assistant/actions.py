@@ -38,6 +38,9 @@ def run_action(actions_dir: Path, action: Action, log: logging.Logger) -> Action
         msg = f"Action {action.id} exceeded {timeout / 60:g} min"
         log.error(msg)
         return ActionResult(action.id, False, msg, "", time.monotonic() - start)
+    except OSError as e:
+        log.error("action %s cannot start: %s", action.id, e)
+        return ActionResult(action.id, False, f"Action {action.id} cannot start: {e}", "", time.monotonic() - start)
     lines = proc.stdout.strip().splitlines()
     output = "\n".join(lines[:3])
     detail = "\n".join([*lines[3:], proc.stderr.strip()]).strip()
@@ -47,28 +50,39 @@ def run_action(actions_dir: Path, action: Action, log: logging.Logger) -> Action
     return ActionResult(action.id, ok, output, detail, time.monotonic() - start)
 
 
-def running_vms() -> list[str]:
+def running_vms() -> list[str] | None:
+    """Names of running libvirt domains; None when the state is unknown (virsh missing or failing)."""
     try:
         proc = subprocess.run(["virsh", "-c", "qemu:///system", "list", "--name", "--state-running"],
                               capture_output=True, text=True, timeout=15, check=False)
     except (OSError, subprocess.TimeoutExpired):
-        return []
-    return [l.strip() for l in proc.stdout.splitlines() if l.strip()] if proc.returncode == 0 else []
+        return None
+    if proc.returncode != 0:
+        return None
+    return [l.strip() for l in proc.stdout.splitlines() if l.strip()]
 
 
 def needs_confirmation(action: Action, finding: Finding, findings: list[Finding],
-                       running_vms: Callable[[], list[str]] = running_vms) -> str | None:
-    """Reason why an `auto` action must ask anyway, or None. Only `update` has such rules."""
+                       running_vms: Callable[[], list[str] | None] = running_vms) -> str | None:
+    """Reason why an `auto` action must ask anyway, or None. Only `update` has such rules.
+
+    The guards fail closed: when the Arch news check is missing or failed, or the VM state is
+    unknown, an automatic update is not allowed to proceed.
+    """
     if action.id != "update":
         return None
     names = [str(i.get("name", "")) for i in finding.items]
-    affected = sorted({p for n in findings if n.id == "arch-news" for i in n.items
-                       for p in i.get("packages", []) if p in names})
+    news = next((n for n in findings if n.id == "arch-news"), None)
+    if news is None or news.error:
+        return "Arch news check unavailable, cannot verify manual-intervention notices"
+    affected = sorted({p for i in news.items for p in i.get("packages", []) if p in names})
     if affected:
         return f"Arch news reports manual intervention for: {', '.join(affected)}"
     sensitive = [n for n in names if any(fnmatch(n, p) for p in VM_SENSITIVE)]
     if sensitive:
         vms = running_vms()
+        if vms is None:
+            return f"{', '.join(sensitive)} would be updated but the VM state is unknown"
         if vms:
             return f"{', '.join(sensitive)} would be updated while VM {', '.join(vms)} is running"
     return None

@@ -54,10 +54,36 @@ def template_summary(findings: list[Finding]) -> Summary:
     return Summary(headline, "\n".join(lines), [])
 
 
+PRIVATE_ITEM_KEYS = {"paths", "link"}
+
+
+def _public(value):
+    """Drop item fields that carry filesystem paths under /home (spec: nothing from /home reaches the model)."""
+    if isinstance(value, str):
+        return None if "/home/" in value else value
+    if isinstance(value, list):
+        cleaned = [_public(v) for v in value]
+        return [v for v in cleaned if v is not None]
+    return value
+
+
+def _compact_item(item: dict) -> dict:
+    out = {}
+    for k, v in item.items():
+        if k in PRIVATE_ITEM_KEYS:
+            continue
+        pv = _public(v)
+        if pv is None and k == "name":
+            pv = str(v).rsplit("/", 1)[-1]
+        if pv is not None:
+            out[k] = pv
+    return out
+
+
 def _compact(f: Finding) -> dict:
     d = {"id": f.id, "severity": f.severity, "title": f.title, "summary": f.summary,
          "actions": [a.label for a in f.actions]}
-    d["items"] = {"count": len(f.items)} if len(f.items) > MAX_ITEMS_IN_PROMPT else list(f.items)
+    d["items"] = {"count": len(f.items)} if len(f.items) > MAX_ITEMS_IN_PROMPT else [_compact_item(i) for i in f.items]
     return d
 
 
