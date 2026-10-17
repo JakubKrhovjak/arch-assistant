@@ -1,0 +1,19 @@
+[project]
+name = "arch-assistant"
+version = "0.1.0"
+description = "Tray asistent pro Arch Linux + Plasma: aktualizace, zdraví systému, úklid, shrnutí přes Claude"
+requires-python = ">=3.13"
+dependencies = ["anthropic>=1.0", "pydantic>=2"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["arch_assistant"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
