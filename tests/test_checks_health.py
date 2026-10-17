@@ -31,8 +31,10 @@ def test_failed_units_reports_failed_and_restarting(shim, check_runner):
     assert by_name["plasma-krunner.service"]["scope"] == "user"
     assert by_name["kde-baloo.service"]["state"] == "restarting" and by_name["kde-baloo.service"]["restarts"] == 12
     assert "app-ghostty.service" not in by_name
+    # a masked unit cannot be restarted: reported with its load state, no action offered
+    assert by_name["systemd-tpm2-setup-early.service"]["load"] == "masked"
+    assert "masked" in f.summary
     assert [(a.id, a.args) for a in f.actions] == [
-        ("restart-unit", ("system", "systemd-tpm2-setup-early.service")),
         ("restart-unit", ("user", "plasma-krunner.service")),
         ("restart-unit", ("user", "kde-baloo.service")),
     ]

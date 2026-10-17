@@ -4,9 +4,9 @@ set -uo pipefail
 
 RESTART_LIMIT=5
 
-failed_units() {   # $1 = "" | "--user"
+failed_units() {   # $1 = "" | "--user"; prints "unit loadstate"
     # shellcheck disable=SC2086
-    systemctl $1 --failed --plain --no-legend 2>/dev/null | awk '{print $1}'
+    systemctl $1 --failed --plain --no-legend 2>/dev/null | awk '{print $1, $2}'
 }
 
 restarting_units() {   # $1 = "" | "--user"
@@ -23,26 +23,28 @@ restarting_units() {   # $1 = "" | "--user"
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 {
-    failed_units ""       | awk '{print "system failed " $1 " 0"}'
-    failed_units "--user" | awk '{print "user failed " $1 " 0"}'
-    restarting_units ""       | awk '{print "system restarting " $1 " " $2}'
-    restarting_units "--user" | awk '{print "user restarting " $1 " " $2}'
+    failed_units ""       | awk '{print "system failed " $1 " 0 " $2}'
+    failed_units "--user" | awk '{print "user failed " $1 " 0 " $2}'
+    restarting_units ""       | awk '{print "system restarting " $1 " " $2 " loaded"}'
+    restarting_units "--user" | awk '{print "user restarting " $1 " " $2 " loaded"}'
 } > "$tmp"
 
 python3 - "$tmp" <<'PY'
 import json, sys
 items, actions = [], []
 for line in open(sys.argv[1]):
-    scope, state, name, restarts = line.split()
-    items.append({"name": name, "scope": scope, "state": state, "restarts": int(restarts)})
-    actions.append({"id": "restart-unit", "label": f"Restart {name}", "args": [scope, name]})
+    scope, state, name, restarts, load = line.split()
+    items.append({"name": name, "scope": scope, "state": state, "restarts": int(restarts), "load": load})
+    if load != "masked":   # a masked unit cannot be restarted; it is reported only
+        actions.append({"id": "restart-unit", "label": f"Restart {name}", "args": [scope, name]})
 if not items:
     print(json.dumps({"id": "failed-units", "severity": "none", "title": "All systemd units healthy", "summary": ""}))
     raise SystemExit
 n = len(items)
 def describe(i):
     extra = f" x{i['restarts']}" if i["state"] == "restarting" else ""
-    return f"{i['name']} ({i['scope']}, {i['state']}{extra})"
+    masked = ", masked: fails from the initrd copy at boot, no restart possible" if i["load"] == "masked" else ""
+    return f"{i['name']} ({i['scope']}, {i['state']}{extra}{masked})"
 print(json.dumps({
     "id": "failed-units", "severity": "high",
     "title": f"{n} systemd unit{'s' if n != 1 else ''} failed or restarting",
