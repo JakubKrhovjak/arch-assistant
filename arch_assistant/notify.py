@@ -21,7 +21,9 @@ NOTIFICATIONS = DBusAddress("/org/freedesktop/Notifications", bus_name="org.free
 BUTTONS_ASK: list[tuple[str, str]] = [("yes", "Yes"), ("yes_auto", "Yes, automatically next time"), ("no", "No")]
 BUTTON_MENU: list[tuple[str, str]] = [("menu", "Open menu")]
 URGENCY_LOW, URGENCY_NORMAL, URGENCY_CRITICAL = 0, 1, 2
-RESULT_TIMEOUT_MS = 15000
+# expire_timeout 0 = the notification stays until the user closes it or picks a button (user's choice)
+PERSISTENT = 0
+RESULT_TIMEOUT_MS = PERSISTENT
 
 
 def build_body(summary: Summary) -> str:
@@ -94,9 +96,10 @@ class Notifier(QObject):
 
     def send(self, summary: Summary, buttons: list[tuple[str, str]], on_action: Callable[[str], None],
              on_closed: Callable[[], None] | None = None, urgency: int = URGENCY_NORMAL,
-             timeout_ms: int = -1) -> int:
+             timeout_ms: int = PERSISTENT) -> int:
         actions = [part for key, label in buttons for part in (key, label)]
-        hints = {"urgency": urgency, "resident": bool(buttons), "desktop-entry": "arch-assistant"}
+        # not resident: choosing a button closes the popup, which is the confirmation the user wants
+        hints = {"urgency": urgency, "resident": False, "desktop-entry": "arch-assistant"}
         nid = self._transport.notify(self.app_name, 0, self.icon, summary.headline, build_body(summary),
                                      actions, hints, timeout_ms)
         if buttons and nid:

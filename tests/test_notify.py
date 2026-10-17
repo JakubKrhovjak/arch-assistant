@@ -39,7 +39,7 @@ def test_notify_flattens_actions_and_dispatches(notifier, transport):
     app_name, replaces, icon, headline, body, actions, hints, timeout = transport.calls[0]
     assert (app_name, replaces, headline, body) == ("Arch Assistant", 0, "Head", "Body")
     assert actions == ["yes", "Yes", "yes_auto", "Yes, automatically next time", "no", "No"]
-    assert hints["urgency"] == 1 and hints["resident"] is True and timeout == -1
+    assert hints["urgency"] == 1 and hints["resident"] is False and timeout == N.PERSISTENT
     notifier._on_action_invoked(nid, "yes_auto")
     assert got == ["yes_auto"]
     notifier._on_action_invoked(nid + 100, "yes")
@@ -73,7 +73,7 @@ def test_result_popup_success_and_failure(notifier, transport):
     N.result_popup(notifier, ActionResult("update", False, "Update failed: x", "", 1.0), "Update system")
     ok_args, fail_args = transport.calls
     assert ok_args[3] == "Update system: done" and ok_args[4] == "Updated 3 packages"
-    assert ok_args[5] == [] and ok_args[6]["urgency"] == 1 and ok_args[6]["resident"] is False and ok_args[7] == 15000
+    assert ok_args[5] == [] and ok_args[6]["urgency"] == 1 and ok_args[6]["resident"] is False and ok_args[7] == N.PERSISTENT
     assert fail_args[3] == "Update system: failed" and fail_args[6]["urgency"] == 2
 
 

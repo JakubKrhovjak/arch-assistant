@@ -213,7 +213,7 @@ class TrayApp(QObject):
         if self.busy:
             self.log.info("action %s requested while busy; stays pending", p.action.id)
             self.notifier.send(Summary("Arch Assistant is busy", f"{p.action.label} stays in the menu, try again later.", []),
-                               [], lambda _k: None, timeout_ms=5000)
+                               [], lambda _k: None)
             return
         self.busy = True
         self._refresh_icon()
