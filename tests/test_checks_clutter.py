@@ -31,18 +31,43 @@ def test_jetbrains_old_none(check_runner, tmp_path):
     assert check_runner.run("jetbrains-old", {"AA_HOME": str(home)}).severity == "none"
 
 
-def test_pkg_cache_above_threshold(shim, check_runner):
-    shim.cmd("du", "11446\t/var/cache/pacman/pkg\n4190\t/home/redo/.cache/yay\n")
+PACCACHE = r'''
+case "$*" in
+  "-dk2") echo "==> finished dry run: 40 candidates (disk space saved: 1.5 GiB)" ;;
+  "-duk0") echo "==> finished dry run: 12 candidates (disk space saved: 800.0 MiB)" ;;
+  *) echo "==> no candidate packages found for pruning" ;;
+esac
+'''
+
+
+def _du(pacman_mb, yay_mb):
+    return (f'case "$*" in\n  *pacman/pkg*) printf "{pacman_mb}\\t/var/cache/pacman/pkg\\n" ;;\n'
+            f'  *) printf "{yay_mb}\\t$HOME/.cache/yay\\n" ;;\nesac\n')
+
+
+def test_pkg_cache_reports_reclaimable_space_only(shim, check_runner):
+    shim.cmd("du", script=_du(9991, 1200))
+    shim.cmd("paccache", script=PACCACHE)
     f = check_runner.run("pkg-cache", {"AA_PKG_CACHE_GB": "2"})
     assert f.severity == "low"
-    assert [(i["name"], i["size_mb"]) for i in f.items] == [("/var/cache/pacman/pkg", 11446), ("/home/redo/.cache/yay", 4190)]
-    assert f.title == "Package caches use 15636 MB"
+    by = {i["name"]: i["size_mb"] for i in f.items}
+    assert by == {"old package versions": 1536, "uninstalled packages": 800, "yay build cache": 1200}
+    assert f.title == "Package caches: 3536 MB can be freed"
+    assert "9991 MB" in f.summary
     assert f.actions[0].id == "clean-pkg-cache"
 
 
+def test_pkg_cache_large_but_nothing_reclaimable_is_quiet(shim, check_runner):
+    shim.cmd("du", script=_du(9991, 0))
+    shim.cmd("paccache", "==> no candidate packages found for pruning\n")
+    f = check_runner.run("pkg-cache", {"AA_PKG_CACHE_GB": "2"})
+    assert f.severity == "none" and "9991 MB" in f.title
+
+
 def test_pkg_cache_below_threshold(shim, check_runner):
-    shim.cmd("du", "500\t/var/cache/pacman/pkg\n100\t/home/redo/.cache/yay\n")
-    assert check_runner.run("pkg-cache", {"AA_PKG_CACHE_GB": "2"}).severity == "none"
+    shim.cmd("du", script=_du(500, 100))
+    shim.cmd("paccache", script=PACCACHE)
+    assert check_runner.run("pkg-cache", {"AA_PKG_CACHE_GB": "5"}).severity == "none"
 
 
 def test_orphans_lists_packages(shim, check_runner):

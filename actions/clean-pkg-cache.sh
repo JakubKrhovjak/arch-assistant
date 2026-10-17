@@ -7,7 +7,7 @@ total_mb() {
 }
 
 before=$(total_mb)
-if ! sudo /usr/bin/paccache -rk2 1>&2; then
+if ! sudo /usr/bin/paccache -rk2 1>&2 || ! sudo /usr/bin/paccache -ruk0 1>&2; then
     echo "paccache failed"
     exit 1
 fi
