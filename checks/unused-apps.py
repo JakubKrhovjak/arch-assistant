@@ -21,6 +21,16 @@ def pacman(*args: str) -> list[str]:
     return [l for l in out.stdout.splitlines() if l.strip()]
 
 
+def required_by_others(pkg: str) -> bool:
+    """True when other installed packages depend on pkg (removing it would break them)."""
+    out = subprocess.run(["pacman", "-Qi", pkg], capture_output=True, text=True, env={**os.environ, "LC_ALL": "C"})
+    for line in out.stdout.splitlines():
+        if line.startswith("Required By"):
+            value = line.split(":", 1)[1].strip()
+            return value not in ("", "None")
+    return False
+
+
 def desktop_files(pkg: str) -> list[Path]:
     files = []
     for line in pacman("-Ql", pkg):
@@ -104,6 +114,8 @@ def main() -> None:
                 if cand and (last is None or cand > last):
                     last = cand
         if app_name is None or last is None or last >= cutoff:
+            continue
+        if required_by_others(pkg):   # a dependency of something else is never "unused"
             continue
         items.append({"name": pkg, "app": app_name, "last_used": last.date().isoformat()})
     if not items:

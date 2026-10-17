@@ -69,14 +69,18 @@ def test_unused_apps_by_atime_and_recently_used(shim, check_runner, tmp_path):
         '<info><metadata owner="http://freedesktop.org"><bookmark:applications>'
         '<bookmark:application name="Recent App" exec="&apos;recentapp %U&apos;" modified="2026-10-16T10:00:00Z" count="1"/>'
         '</bookmark:applications></metadata></info></bookmark></xbel>')
+    dep_bin = _bin(tmp_path / "bin2", "depapp", 200)
+    _desktop(apps, "depapp", str(dep_bin), "Dep App")
     shim.cmd("pacman", script=r'''
 case "$1" in
-  -Qqe) printf 'oldapp\nfreshapp\nrecentapp\nplasma-desktop\n' ;;
+  -Qqe) printf 'oldapp\nfreshapp\nrecentapp\nplasma-desktop\ndepapp\n' ;;
   -Ql) echo "$2 ''' + str(apps) + r'''/$2.desktop" ;;
+  -Qi) if [[ "$2" == "depapp" ]]; then echo "Required By     : cups  pipewire-pulse"; else echo "Required By     : None"; fi ;;
 esac
 ''')
     f = check_runner.run("unused-apps", {"AA_UNUSED_DAYS": "90", "AA_HOME": str(home)})
     assert f.severity == "low"
+    # depapp is as old as oldapp but other packages depend on it: never offered for removal
     assert [i["name"] for i in f.items] == ["oldapp"]
     assert f.items[0]["app"] == "Old App" and f.items[0]["last_used"] <= time.strftime("%Y-%m-%d", time.localtime(time.time() - 199 * 86400))
     assert [(a.id, a.args) for a in f.actions] == [("remove-package", ("oldapp",))]
