@@ -53,6 +53,20 @@ if [[ $dry_run -eq 0 ]]; then
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 fi
 
+echo "-  KWin rule: the assistant's windows never appear in the task bar (tray app)"
+if [[ $dry_run -eq 0 ]] && command -v kwriteconfig6 >/dev/null 2>&1; then
+    rules=$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null || true)
+    if [[ ",$rules," != *",arch-assistant-tray,"* ]]; then
+        kwriteconfig6 --file kwinrulesrc --group General --key rules "${rules:+$rules,}arch-assistant-tray"
+    fi
+    kwriteconfig6 --file kwinrulesrc --group arch-assistant-tray --key Description "Arch Assistant: tray only, not in the task bar"
+    kwriteconfig6 --file kwinrulesrc --group arch-assistant-tray --key wmclass arch-assistant
+    kwriteconfig6 --file kwinrulesrc --group arch-assistant-tray --key wmclassmatch 1
+    kwriteconfig6 --file kwinrulesrc --group arch-assistant-tray --key skiptaskbar true
+    kwriteconfig6 --file kwinrulesrc --group arch-assistant-tray --key skiptaskbarrule 2
+    qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
+fi
+
 step 5 "Config $config_dir/config.toml from assets/config.example.toml (only if missing)"
 if [[ $dry_run -eq 0 ]]; then
     mkdir -p "$config_dir"
