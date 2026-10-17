@@ -20,7 +20,10 @@ exit 0
 '''
 
 
-def _setup(shim, pacman_body, yay_list="", pacman_log=""):
+def _setup(shim, pacman_body, yay_list="", pacman_log="", flatpak_rc=0):
+    shim.cmd("flatpak", script=(
+        'if [[ "$1" == "remote-ls" ]]; then printf "com.google.Chrome\\t1\\norg.x\\t2\\n"; exit 0; fi\n'
+        + ('echo "error: Flatpak broke" >&2; exit 1\n' if flatpak_rc else 'echo "Updating..."; exit 0\n')))
     # sudo shim: strip the absolute path so the pacman shim on PATH is used
     shim.cmd("sudo", script='cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n')
     shim.cmd("pacman", script=pacman_body)
@@ -39,7 +42,16 @@ def test_update_success_counts_packages(shim, monkeypatch):
     monkeypatch.setenv("AA_PACMAN_LOG", env["AA_PACMAN_LOG"])
     r = run_action(ACTIONS, Action("update", "Update system"), LOG)
     assert r.ok, r.detail
-    assert r.output.splitlines()[0] == "Updated 3 packages (repo) and 1 (AUR)"
+    assert r.output.splitlines()[0] == "Updated 3 packages (repo), 1 (AUR) and 2 Flatpaks"
+    assert any(c.startswith("sudo /usr/bin/flatpak update -y --noninteractive") for c in shim.calls())
+
+
+def test_update_flatpak_failure_is_reported(shim, monkeypatch):
+    env = _setup(shim, PACMAN_OK, flatpak_rc=1)
+    monkeypatch.setenv("AA_PACMAN_LOG", env["AA_PACMAN_LOG"])
+    r = run_action(ACTIONS, Action("update", "Update system"), LOG)
+    assert not r.ok
+    assert r.output.startswith("Updated 3 packages (repo), 0 (AUR); Flatpak update failed: error: Flatpak broke")
     assert any(c.startswith("sudo /usr/bin/pacman -Syu --noconfirm") for c in shim.calls())
     assert any(c.startswith("yay -Sua --noconfirm") for c in shim.calls())
 

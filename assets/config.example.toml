@@ -20,7 +20,7 @@ api_key_file = "~/.config/zsh/secrets.zsh"
 
 # Packages named explicitly in the update notification (fnmatch patterns). Any of these pending
 # makes the updates finding "high" and triggers a new notification.
-critical_packages = ["linux", "linux-lts", "linux-firmware", "systemd", "plasma-*", "kwin", "mesa", "qemu*", "libvirt*", "docker", "k3s"]
+critical_packages = ["linux", "linux-lts", "linux-firmware", "systemd", "plasma-*", "kwin", "mesa", "qemu*", "libvirt*", "docker", "k3s", "com.google.Chrome"]
 
 [thresholds]
 disk_pct = 10          # report a filesystem with less than this % free

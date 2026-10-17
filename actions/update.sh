@@ -1,6 +1,6 @@
 #!/bin/bash
-# Action: full system update (repo via pacman, then AUR via yay).
-# stdout: "Updated N packages (repo) and M (AUR)" [+ "New .pacnew files: K"], or "Update failed: <reason>".
+# Action: full system update (repo via pacman, then AUR via yay, then Flatpak apps and runtimes).
+# stdout: "Updated N packages (repo), M (AUR) and K Flatpaks" [+ "New .pacnew files: K"], or "Update failed: <reason>".
 # stderr: full pacman/yay output. Exit 1 if pacman fails (yay is skipped then).
 # Env: AA_PACMAN_LOG (default /var/log/pacman.log), AA_UPDATE_SINCE (ISO timestamp, default now).
 set -uo pipefail
@@ -14,6 +14,12 @@ have_yay=0
 if command -v yay >/dev/null 2>&1; then
     have_yay=1
     aur_count=$(yay -Qua 2>/dev/null | grep -c . || true)
+fi
+flatpak_count=0
+have_flatpak=0
+if command -v flatpak >/dev/null 2>&1; then
+    have_flatpak=1
+    flatpak_count=$(flatpak remote-ls --updates --columns=application 2>/dev/null | grep -c . || true)
 fi
 
 err_file=$(mktemp)
@@ -36,7 +42,17 @@ if [[ $have_yay -eq 1 ]]; then
     fi
 fi
 
-echo "Updated $repo_count packages (repo) and $aur_count (AUR)"
+if [[ $have_flatpak -eq 1 && "$flatpak_count" -gt 0 ]]; then
+    # system-wide Flatpaks: sudo instead of a polkit prompt that cannot be answered in the background
+    if ! sudo /usr/bin/flatpak update -y --noninteractive 1>&2 2>"$err_file"; then
+        cat "$err_file" >&2
+        reason=$(grep -m1 -i "error" "$err_file" || head -n1 "$err_file")
+        echo "Updated $repo_count packages (repo), $aur_count (AUR); Flatpak update failed: ${reason:-flatpak exited with an error}"
+        exit 1
+    fi
+fi
+
+echo "Updated $repo_count packages (repo), $aur_count (AUR) and $flatpak_count Flatpaks"
 
 if [[ -r "$pacman_log" ]]; then
     pacnew=$(awk -v since="$since" '

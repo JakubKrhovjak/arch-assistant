@@ -1,5 +1,5 @@
 #!/bin/bash
-# Check: pending repo (checkupdates) and AUR (yay -Qua) updates.
+# Check: pending repo (checkupdates), AUR (yay -Qua) and Flatpak (flatpak remote-ls --updates) updates.
 # Env: AA_CRITICAL_PACKAGES (space-separated fnmatch patterns).
 set -uo pipefail
 
@@ -17,7 +17,14 @@ if command -v yay >/dev/null 2>&1; then
     aur_out=$(yay -Qua 2>/dev/null || true)
 fi
 
-REPO_OUT="$repo_out" AUR_OUT="$aur_out" python3 - <<'PY'
+flatpak_out=""
+flatpak_installed=""
+if command -v flatpak >/dev/null 2>&1; then
+    flatpak_out=$(flatpak remote-ls --updates --columns=application,version 2>/dev/null || true)
+    flatpak_installed=$(flatpak list --columns=application,version 2>/dev/null || true)
+fi
+
+REPO_OUT="$repo_out" AUR_OUT="$aur_out" FLATPAK_OUT="$flatpak_out" FLATPAK_INSTALLED="$flatpak_installed" python3 - <<'PY'
 import json, os
 from fnmatch import fnmatch
 
@@ -33,7 +40,22 @@ def parse(text, source):
         yield {"name": name, "old": parts[1], "new": parts[3], "source": source,
                "critical": any(fnmatch(name, p) for p in patterns)}
 
-items = list(parse(os.environ["REPO_OUT"], "repo")) + list(parse(os.environ["AUR_OUT"], "aur"))
+def parse_flatpak(updates, installed):
+    current = {}
+    for line in installed.splitlines():
+        cols = line.split("\t")
+        if cols and cols[0]:
+            current[cols[0]] = cols[1].strip() if len(cols) > 1 else ""
+    for line in updates.splitlines():
+        cols = line.split("\t")
+        if not cols or not cols[0].strip():
+            continue
+        name = cols[0].strip()
+        yield {"name": name, "old": current.get(name, ""), "new": cols[1].strip() if len(cols) > 1 else "",
+               "source": "flatpak", "critical": any(fnmatch(name, p) for p in patterns)}
+
+items = (list(parse(os.environ["REPO_OUT"], "repo")) + list(parse(os.environ["AUR_OUT"], "aur"))
+         + list(parse_flatpak(os.environ["FLATPAK_OUT"], os.environ["FLATPAK_INSTALLED"])))
 if not items:
     print(json.dumps({"id": "updates", "severity": "none", "title": "No pending updates", "summary": ""}))
     raise SystemExit

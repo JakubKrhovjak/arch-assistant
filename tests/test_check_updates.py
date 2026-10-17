@@ -1,6 +1,7 @@
 def test_updates_with_critical_and_aur(shim, check_runner):
     shim.cmd("checkupdates", "linux 7.2.10-arch1-1 -> 7.2.11-arch1-1\nvim 9.1-1 -> 9.2-1\n")
     shim.cmd("yay", "aur/mbpoll-git 1.5-1 -> 1.6-1\n")
+    shim.cmd("flatpak", "")
     f = check_runner.run("updates", {"AA_CRITICAL_PACKAGES": "linux plasma-*"})
     assert f.severity == "high"
     assert [i["name"] for i in f.items] == ["linux", "vim", "mbpoll-git"]
@@ -16,6 +17,7 @@ def test_updates_with_critical_and_aur(shim, check_runner):
 def test_updates_nothing_pending(shim, check_runner):
     shim.cmd("checkupdates", "", exit_code=2)
     shim.cmd("yay", "")
+    shim.cmd("flatpak", "")
     f = check_runner.run("updates")
     assert f.severity == "none"
 
@@ -23,6 +25,7 @@ def test_updates_nothing_pending(shim, check_runner):
 def test_updates_only_regular_packages_is_low(shim, check_runner):
     shim.cmd("checkupdates", "vim 9.1-1 -> 9.2-1\ngit 2.50-1 -> 2.51-1\n")
     shim.cmd("yay", "")
+    shim.cmd("flatpak", "")
     f = check_runner.run("updates", {"AA_CRITICAL_PACKAGES": "linux"})
     assert f.severity == "low" and f.summary == "2 packages"
 
@@ -30,5 +33,35 @@ def test_updates_only_regular_packages_is_low(shim, check_runner):
 def test_updates_checkupdates_error_is_failed_check(shim, check_runner):
     shim.cmd("checkupdates", "", exit_code=1, stderr="ERROR: Cannot fetch updates")
     shim.cmd("yay", "")
+    shim.cmd("flatpak", "")
     f = check_runner.run("updates")
     assert f.title == "Check updates failed" and "Cannot fetch updates" in f.error
+
+
+FLATPAK = r'''
+case "$*" in
+  "remote-ls --updates --columns=application,version") printf 'com.google.Chrome\t155.0.8059.84-1\norg.bleachbit.BleachBit\tv6.0.5\norg.kde.Platform\t\n' ;;
+  "list --columns=application,version") printf 'com.google.Chrome\t155.0.8059.39-1\norg.bleachbit.BleachBit\tv6.0.4\n' ;;
+esac
+'''
+
+
+def test_updates_include_flatpak_with_versions(shim, check_runner):
+    shim.cmd("checkupdates", "", exit_code=2)
+    shim.cmd("yay", "")
+    shim.cmd("flatpak", script=FLATPAK)
+    f = check_runner.run("updates", {"AA_CRITICAL_PACKAGES": "linux com.google.Chrome"})
+    by = {i["name"]: i for i in f.items}
+    assert by["com.google.Chrome"] == {"name": "com.google.Chrome", "old": "155.0.8059.39-1", "new": "155.0.8059.84-1",
+                                       "source": "flatpak", "critical": True}
+    assert by["org.bleachbit.BleachBit"]["old"] == "v6.0.4" and by["org.bleachbit.BleachBit"]["critical"] is False
+    assert by["org.kde.Platform"]["old"] == "" and by["org.kde.Platform"]["new"] == ""
+    assert f.severity == "high" and f.summary.startswith("Critical: com.google.Chrome 155.0.8059.39-1 -> 155.0.8059.84-1")
+
+
+def test_updates_without_flatpak_binary_still_work(shim, check_runner, monkeypatch):
+    shim.cmd("checkupdates", "vim 9.1-1 -> 9.2-1\n")
+    shim.cmd("yay", "")
+    shim.cmd("flatpak", "", exit_code=127)
+    f = check_runner.run("updates", {"AA_CRITICAL_PACKAGES": "linux"})
+    assert [i["name"] for i in f.items] == ["vim"]

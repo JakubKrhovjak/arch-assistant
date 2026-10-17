@@ -22,7 +22,7 @@ DEFAULTS: dict = {
     "api_key_file": "~/.config/zsh/secrets.zsh",
     "critical_packages": [
         "linux", "linux-lts", "linux-firmware", "systemd", "plasma-*", "kwin",
-        "mesa", "qemu*", "libvirt*", "docker", "k3s",
+        "mesa", "qemu*", "libvirt*", "docker", "k3s", "com.google.Chrome",
     ],
     "thresholds": {
         "disk_pct": 10, "esp_mb": 30, "pkg_cache_gb": 2, "user_cache_gb": 1,

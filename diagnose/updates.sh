@@ -6,6 +6,8 @@ echo "===== pending updates (repo)"
 checkupdates 2>/dev/null | head -80
 echo "===== pending updates (AUR)"
 yay -Qua 2>/dev/null | head -40
+echo "===== pending updates (Flatpak)"
+flatpak remote-ls --updates --columns=application,version 2>/dev/null | head -40
 echo "===== Arch news cache (titles)"
 grep -o "<title>[^<]*</title>" "${AA_STATE_DIR:-.}/arch-news.xml" 2>/dev/null | head -8 | sed 's/<[^>]*>//g'
 echo "===== running kernel / installed"
