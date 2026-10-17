@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Arch Assistant
+Comment=Updates, system health and cleanup assistant for Arch Linux
+Exec=@BIN@
+Icon=@ICON@
+Terminal=false
+NoDisplay=true
+StartupNotify=false
+X-KDE-autostart-after=panel
+X-GNOME-Autostart-enabled=true

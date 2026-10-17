@@ -1,0 +1,30 @@
+# Arch Assistant configuration (~/.config/arch-assistant/config.toml).
+# Action modes (ask / auto / never) live in actions.toml next to this file; the tray writes them.
+
+# Claude model used for the notification summary: claude-haiku-5-5 (default, cheapest) or claude-sonnet-5-5.
+model = "claude-haiku-5-5"
+
+# How often to re-run the checks while the tray is running (hours). The first run is right after login.
+interval_hours = 6
+
+# Shell file containing a line ANTHROPIC_API_KEY=... (never copied anywhere). Without a valid key
+# the assistant works the same, only the notification text comes from a template instead of Claude.
+api_key_file = "~/.config/zsh/secrets.zsh"
+
+# Packages named explicitly in the update notification (fnmatch patterns). Any of these pending
+# makes the updates finding "high" and triggers a new notification.
+critical_packages = ["linux", "linux-lts", "linux-firmware", "systemd", "plasma-*", "kwin", "mesa", "qemu*", "libvirt*", "docker", "k3s"]
+
+[thresholds]
+disk_pct = 10          # report a filesystem with less than this % free
+esp_mb = 30            # report the EFI system partition with less than this many MB free
+pkg_cache_gb = 2       # pacman + yay cache size that triggers the cleanup offer
+user_cache_gb = 1      # single ~/.cache entry size that triggers the cleanup offer
+journal_err = 50       # journal errors since boot before it is mentioned
+unused_days = 90       # application unused for this many days
+hog_cpu_pct = 50       # process CPU % ...
+hog_minutes = 5        # ... sustained for this many minutes
+hog_rss_gb = 4         # process RSS above this many GB
+mirror_days = 7        # mirrorlist older than this many days
+update_min_count = 20  # pending updates count that triggers a notification even without critical packages
+report_days = 7        # re-notify an unchanged finding after this many days
