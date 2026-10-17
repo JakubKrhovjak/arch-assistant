@@ -35,3 +35,4 @@ hog_rss_gb = 4         # process RSS above this many GB
 mirror_days = 7        # mirrorlist older than this many days
 update_min_count = 20  # pending updates count that triggers a notification even without critical packages
 report_days = 7        # re-notify an unchanged finding after this many days
+snooze_days = 7        # after "No": stay quiet about that finding for this many days, then remind once

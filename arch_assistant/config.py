@@ -27,7 +27,7 @@ DEFAULTS: dict = {
     "thresholds": {
         "disk_pct": 10, "esp_mb": 30, "pkg_cache_gb": 2, "user_cache_gb": 1,
         "journal_err": 50, "unused_days": 90, "hog_cpu_pct": 50, "hog_rss_gb": 4,
-        "hog_minutes": 5, "mirror_days": 7, "update_min_count": 20, "report_days": 7,
+        "hog_minutes": 5, "mirror_days": 7, "update_min_count": 20, "report_days": 7, "snooze_days": 7,
     },
 }
 

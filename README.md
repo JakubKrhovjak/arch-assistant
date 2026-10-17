@@ -35,6 +35,8 @@ entry and copies the example config. Root for the actions comes from the existin
 | `critical_packages` | patterns named in update notifications | kernel, systemd, Plasma, Mesa, qemu, libvirt, docker, k3s |
 | `[thresholds]` | disk %, ESP MB, cache sizes, journal errors, unused days, hog limits, mirror age, update count, re-report days | see example |
 
+Clicking **No** snoozes that finding for `snooze_days` (default 7): no notification and no menu entry, even if the finding changes in the meantime. When the snooze runs out and the finding still applies, it is reported once more. Critical findings (unsigned UKI, failed Secure Boot check) are never snoozed.
+
 Action modes are in `~/.config/arch-assistant/actions.toml` as `id = "ask" | "auto" | "never"`;
 the tray writes `auto` when you click "Yes, automatically next time". `remove-package` and `pacdiff`
 never run unattended, nor does `restart-unit` for system units. An automatic `update` still asks when

@@ -90,7 +90,7 @@ class Cycle:
                     executed.add((f.id, action.id, action.args))
         # the open queue is rebuilt from everything currently found, not only from what is new
         for f in result.findings:
-            if f.is_empty or f.error or self.state.is_declined(f):
+            if f.is_empty or f.error or self.state.is_snoozed(f, now):
                 continue
             for action in f.actions:
                 if effective_mode(action.id, self.cfg, action.args) == "never" or (f.id, action.id, action.args) in executed:
@@ -127,5 +127,5 @@ class Cycle:
 
     def decline(self, pending: Pending) -> None:
         with self._lock:
-            self.state.mark_declined(pending.finding)
+            self.state.mark_declined(pending.finding, self.now(), self.cfg)
             self.state.save()

@@ -61,17 +61,29 @@ class State:
 
     # --- deduplication -----------------------------------------------------
 
-    def is_declined(self, f: Finding) -> bool:
-        return self.data["declined"].get(f.id) == fingerprint(f)
+    def is_snoozed(self, f: Finding, now: datetime) -> bool:
+        """The user said "No" and the snooze has not run out yet. Critical findings are never snoozed."""
+        if f.severity == "critical":
+            return False
+        entry = self.data["declined"].get(f.id)
+        if not isinstance(entry, dict):   # old format (fingerprint string) or nothing
+            return False
+        return now < datetime.fromisoformat(entry["until"])
+
+    def _snooze_expired(self, f: Finding, now: datetime) -> bool:
+        entry = self.data["declined"].get(f.id)
+        return isinstance(entry, dict) and now >= datetime.fromisoformat(entry["until"])
 
     def should_report(self, f: Finding, cfg: Config, now: datetime) -> bool:
         if f.is_empty:
             return False
+        if self.is_snoozed(f, now):
+            return False
+        if self._snooze_expired(f, now):   # one reminder after the snooze runs out
+            return True
         if f.id == "updates":
             return self._should_report_updates(f, cfg, now)
         fp = fingerprint(f)
-        if self.data["declined"].get(f.id) == fp:
-            return False
         rep = self.data["reported"].get(f.id)
         if rep is None or rep["fp"] != fp:
             return True
@@ -98,12 +110,17 @@ class State:
     def mark_reported(self, f: Finding, now: datetime) -> None:
         with self._lock:
             self.data["reported"][f.id] = {"fp": fingerprint(f), "at": now.isoformat()}
+            entry = self.data["declined"].get(f.id)
+            if not isinstance(entry, dict) or now >= datetime.fromisoformat(entry["until"]):
+                self.data["declined"].pop(f.id, None)   # snooze over (or old format): the reminder was sent
             if f.id == "updates":
                 self.data["last_update_report"] = {"at": now.isoformat(), "pkgs": _pkgs(f)}
 
-    def mark_declined(self, f: Finding) -> None:
+    def mark_declined(self, f: Finding, now: datetime, cfg: Config) -> None:
+        """"No": stay quiet about this finding for snooze_days, then remind once if it still applies."""
         with self._lock:
-            self.data["declined"][f.id] = fingerprint(f)
+            until = now + timedelta(days=cfg.thresholds["snooze_days"])
+            self.data["declined"][f.id] = {"fp": fingerprint(f), "until": until.isoformat()}
 
     def mark_update_run(self, now: datetime) -> None:
         with self._lock:

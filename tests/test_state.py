@@ -41,20 +41,55 @@ def test_report_again_after_7_days(state, cfg):
     assert state.should_report(f, cfg, NOW + timedelta(days=7))
 
 
-def test_declined_same_fingerprint_not_reported(state, cfg):
+def test_decline_snoozes_for_snooze_days(state, cfg):
     f = finding()
     state.mark_reported(f, NOW)
-    state.mark_declined(f)
-    assert not state.should_report(f, cfg, NOW + timedelta(days=30))
+    state.mark_declined(f, NOW, cfg)
+    assert state.is_snoozed(f, NOW + timedelta(days=6))
+    assert not state.should_report(f, cfg, NOW + timedelta(days=6))
+    assert not state.is_snoozed(f, NOW + timedelta(days=7))
+    assert state.should_report(f, cfg, NOW + timedelta(days=7))
 
 
-def test_changed_fingerprint_reported_even_if_declined(state, cfg):
+def test_snooze_silences_a_changed_finding_too(state, cfg):
     f = finding(items=[{"name": "a"}])
     state.mark_reported(f, NOW)
-    state.mark_declined(f)
+    state.mark_declined(f, NOW, cfg)
     g = finding(items=[{"name": "a"}, {"name": "b"}])
-    assert fingerprint(f) != fingerprint(g)
-    assert state.should_report(g, cfg, NOW)
+    assert not state.should_report(g, cfg, NOW + timedelta(days=1))
+
+
+def test_snooze_applies_to_updates(state, cfg):
+    f = updates("linux")
+    state.mark_reported(f, NOW)
+    state.mark_declined(f, NOW, cfg)
+    assert not state.should_report(updates("linux", "plasma-desktop"), cfg, NOW + timedelta(days=2))
+    assert state.should_report(updates("linux", "plasma-desktop"), cfg, NOW + timedelta(days=7))
+
+
+def test_critical_finding_ignores_snooze(state, cfg):
+    f = finding(severity="critical")
+    state.mark_reported(f, NOW)
+    state.mark_declined(f, NOW, cfg)
+    assert not state.is_snoozed(f, NOW + timedelta(days=1))
+    g = finding(severity="critical", items=[{"name": "x"}])
+    assert state.should_report(g, cfg, NOW + timedelta(days=1))
+
+
+def test_reminder_after_snooze_is_sent_once(state, cfg):
+    cfg.thresholds["snooze_days"] = 3   # shorter than report_days: the reminder still comes on day 3
+    f = finding()
+    state.mark_reported(f, NOW)
+    state.mark_declined(f, NOW, cfg)
+    assert state.should_report(f, cfg, NOW + timedelta(days=3))
+    state.mark_reported(f, NOW + timedelta(days=3))
+    assert not state.should_report(f, cfg, NOW + timedelta(days=4))
+
+
+def test_old_string_decline_entries_are_not_snoozed(state, cfg):
+    f = finding()
+    state.data["declined"]["orphans"] = "deadbeef"   # format before snoozing existed
+    assert not state.is_snoozed(f, NOW)
 
 
 def test_fingerprint_ignores_sizes(state):
