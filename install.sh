@@ -55,9 +55,11 @@ fi
 
 echo "-  KWin rule: the assistant's windows never appear in the task bar (tray app)"
 if [[ $dry_run -eq 0 ]] && command -v kwriteconfig6 >/dev/null 2>&1; then
-    rules=$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null || true)
+    # Plasma 6.8 keeps the rule list under "Order" (older versions used "rules"); never drop existing entries
+    rules=$(kreadconfig6 --file kwinrulesrc --group General --key Order 2>/dev/null || true)
+    [[ -z "$rules" ]] && rules=$(kreadconfig6 --file kwinrulesrc --group General --key rules 2>/dev/null || true)
     if [[ ",$rules," != *",arch-assistant-tray,"* ]]; then
-        kwriteconfig6 --file kwinrulesrc --group General --key rules "${rules:+$rules,}arch-assistant-tray"
+        kwriteconfig6 --file kwinrulesrc --group General --key Order "${rules:+$rules,}arch-assistant-tray"
     fi
     kwriteconfig6 --file kwinrulesrc --group arch-assistant-tray --key Description "Arch Assistant: tray only, not in the task bar"
     kwriteconfig6 --file kwinrulesrc --group arch-assistant-tray --key wmclass arch-assistant
