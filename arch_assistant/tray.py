@@ -188,6 +188,11 @@ class TrayApp(QObject):
         self.timer.setInterval(int(cfg.interval_hours * 3600 * 1000))
         self.timer.timeout.connect(self.check_now)
         self.timer.start()
+        if cfg.config_error:
+            self.log.error("config error, defaults in use: %s", cfg.config_error)
+            QTimer.singleShot(0, lambda: self.notifier.send(
+                Summary("Arch Assistant: config.toml has a syntax error, defaults are in use", cfg.config_error, []),
+                [], lambda _k: None, urgency=URGENCY_CRITICAL))
         QTimer.singleShot(0, self.check_now)
 
     # --- icon & menu -------------------------------------------------------

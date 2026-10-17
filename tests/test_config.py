@@ -33,3 +33,14 @@ def test_check_env_contains_thresholds(tmp_path):
     assert env["AA_ESP_MB"] == "30"
     assert "linux" in env["AA_CRITICAL_PACKAGES"].split()
     assert env["AA_STATE_DIR"] == str(tmp_path)
+
+
+def test_config_toml_syntax_error_falls_back_to_defaults(tmp_path):
+    (tmp_path / "config.toml").write_text('model = "claude-sonnet-5-5"\nss\n')
+    cfg = load_config(tmp_path, tmp_path)
+    assert cfg.model == "claude-haiku-5-5"
+    assert cfg.config_error and "line 2" in cfg.config_error
+
+
+def test_config_without_error_has_no_error(tmp_path):
+    assert load_config(tmp_path, tmp_path).config_error is None

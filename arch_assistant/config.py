@@ -45,6 +45,7 @@ class Config:
     state_dir: Path
     checks_dir: Path
     actions_dir: Path
+    config_error: str | None = None
 
 
 def default_config_dir() -> Path:
@@ -59,11 +60,19 @@ def _read_toml(path: Path) -> dict:
     return tomllib.loads(path.read_text()) if path.is_file() else {}
 
 
+def _read_toml_safe(path: Path) -> tuple[dict, str | None]:
+    """(data, error): a file with a syntax error yields {} and a message instead of crashing the tray."""
+    try:
+        return _read_toml(path), None
+    except (tomllib.TOMLDecodeError, OSError) as e:
+        return {}, f"{path}: {e}"
+
+
 def load_config(config_dir: Path | None = None, state_dir: Path | None = None) -> Config:
     config_dir = config_dir or default_config_dir()
     state_dir = state_dir or default_state_dir()
-    raw = _read_toml(config_dir / "config.toml")
-    modes = _read_toml(config_dir / "actions.toml")
+    raw, err_cfg = _read_toml_safe(config_dir / "config.toml")
+    modes, err_modes = _read_toml_safe(config_dir / "actions.toml")
     thresholds = {**DEFAULTS["thresholds"], **raw.get("thresholds", {})}
     backend = str(raw.get("backend", DEFAULTS["backend"]))
     return Config(
@@ -78,6 +87,7 @@ def load_config(config_dir: Path | None = None, state_dir: Path | None = None) -
         state_dir=state_dir,
         checks_dir=REPO_ROOT / "checks",
         actions_dir=REPO_ROOT / "actions",
+        config_error=" ; ".join(e for e in (err_cfg, err_modes) if e) or None,
     )
 
 
