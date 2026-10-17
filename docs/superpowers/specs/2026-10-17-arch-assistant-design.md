@@ -48,7 +48,7 @@ Tyto body uživatel řekl výslovně, stavitel je nemění:
 2. **Detekci dělají hotové skripty** (bash nebo Python, na jazyku nezáleží). Claude dostane jen jejich výstup. Tokeny držet na minimu.
 3. **Model**: Haiku nebo Sonnet, nic dražšího. Výchozí `claude-haiku-5-5`, volitelně `claude-sonnet-5-5`.
 4. **Chování při nálezu**: notifikace (popup Plasmy) s tlačítky **Ano / Ne** a volbou **„příště automaticky“**. Úkoly jde nechat v nabídce ikony na později. **Vždy** přijde popup, že akce proběhla a jak dopadla.
-5. **Root**: stroj už má `/etc/sudoers.d/redo` s `NOPASSWD: ALL` a uživatel ho **nechává** (varianta A, 2026-10-17, po vysvětlení rizika; je i ve skupině `docker`, což je root tak jako tak). Asistent tedy volá `sudo` přímo, žádný vlastní soubor v `sudoers.d` nevzniká. § 8 popisuje, které příkazy pod rootem běží, aby bylo možné později přejít na úzký seznam.
+5. **Root**: asistent volá `sudo` přímo a počítá s tím, že na stroji nevyžaduje heslo (rozhodnutí uživatele 2026-10-17). Vlastní soubor v `sudoers.d` nevzniká; § 8 popisuje, které příkazy pod rootem běží, aby šlo později přejít na úzký seznam.
 9. **Klíč k API** je v `~/.config/zsh/secrets.zsh` (práva 600) jako `ANTHROPIC_API_KEY`, klíč z Console s fakturací. Asistent ho při startu čte z tohoto souboru (cesta v konfiguraci), nikam ho nekopíruje.
 10. **Start hned po přihlášení** a pozdější napojení na instalační skript stroje (§ 12).
 6. **Notifikace aktualizací**: nezajímá ho seznam balíčků. Vypíchnout jen zásadní (jádro, Plasma apod.), zbytek jako počet.
