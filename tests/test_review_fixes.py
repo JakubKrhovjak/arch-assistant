@@ -293,11 +293,14 @@ def test_pending_dialog_lists_and_runs(qapp):
     texts = [b.text() for b in dlg.run_buttons]
     assert texts == ["Run"] and "Remove orphans: 3 orphans" in dlg.labels[0].text() and "needs care" in dlg.labels[0].text()
     assert dlg.auto_boxes[0].text() == "Next time run automatically, just notify" and not dlg.auto_boxes[0].isChecked()
-    dlg.run_buttons[0].click()
     dlg.auto_boxes[0].setChecked(True)
     dlg.run_buttons[0].click()
+    assert ran == [(p, True)]
+    dlg.run_buttons[0].click()           # the row is locked while the action runs
+    assert ran == [(p, True)]
+    dlg.finish_row(p, ok=False)          # failure unlocks it again
     dlg.decline_buttons[0].click()
-    assert ran == [(p, False), (p, True)] and declined == [p]
+    assert declined == [p]
     dlg.deleteLater()
     qapp.processEvents()
 

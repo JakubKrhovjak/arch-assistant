@@ -44,6 +44,15 @@ if [[ $dry_run -eq 0 ]]; then
         "$here/assets/arch-assistant.desktop" > "$autostart"
 fi
 
+step_4b_apps="$HOME/.local/share/applications/arch-assistant.desktop"
+echo "-  Desktop entry $step_4b_apps (hidden; gives the windows their icon on Wayland)"
+if [[ $dry_run -eq 0 ]]; then
+    mkdir -p "$(dirname "$step_4b_apps")"
+    sed -e "s|@BIN@|$here/bin/arch-assistant|g" -e "s|@ICON@|$here/assets/tray.svg|g" \
+        "$here/assets/arch-assistant.desktop" > "$step_4b_apps"
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+fi
+
 step 5 "Config $config_dir/config.toml from assets/config.example.toml (only if missing)"
 if [[ $dry_run -eq 0 ]]; then
     mkdir -p "$config_dir"

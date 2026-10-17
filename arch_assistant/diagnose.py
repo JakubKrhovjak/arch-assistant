@@ -46,7 +46,7 @@ class Diagnosis:
 
 def collect_context(finding: Finding, cfg: Config, log: logging.Logger, diagnose_dir: Path = DIAGNOSE_DIR) -> str:
     """Run diagnose/<finding id>.sh with the finding JSON on stdin; fall back to the finding JSON itself."""
-    payload = json.dumps(finding.to_dict(), ensure_ascii=False, indent=1)
+    payload = json.dumps(finding.to_dict(), ensure_ascii=False)   # one line: collectors read it with `read -r`
     script = next((p for p in (diagnose_dir / f"{finding.id}.sh", diagnose_dir / f"{finding.id}.py") if p.is_file()), None)
     if script is None:
         return payload

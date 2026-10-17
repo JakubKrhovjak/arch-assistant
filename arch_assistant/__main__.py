@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     p_act.add_argument("id")
     p_act.add_argument("args", nargs="*")
     sub.add_parser("once", help="run one full cycle without GUI (auto actions do run)")
+    p_diag = sub.add_parser("diagnose", help="run one check and ask Claude to explain its finding")
+    p_diag.add_argument("id")
     args = parser.parse_args(argv)
 
     cfg = load_config()
@@ -47,6 +49,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if res.ok else 1
     api_key = read_api_key(cfg.api_key_file)
     state = State(cfg.state_dir / "state.json")
+    if args.cmd == "diagnose":
+        from .diagnose import collect_context, diagnose
+        findings = run_all(cfg.checks_dir, check_env(cfg), only=[args.id])
+        if not findings:
+            print(f"unknown check: {args.id}")
+            return 1
+        f = findings[0]
+        print(f"[{f.severity:8}] {f.id}: {f.title}" + (f" – {f.summary}" if f.summary else ""))
+        context = collect_context(f, cfg, log)
+        result = diagnose(f, cfg, api_key, log, context=context)
+        if result is None:
+            print("diagnosis unavailable (see the log)")
+            return 1
+        print(f"\n{result.explanation}\n\nconfidence: {result.confidence}\n\nsuggested commands (not executed):")
+        for c in result.commands:
+            print(f"  {c}")
+        return 0
     if args.cmd == "once":
         result = Cycle(cfg, state, log, api_key).run()
         if result is None:

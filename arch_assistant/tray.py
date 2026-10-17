@@ -1,19 +1,19 @@
-"""System tray application: icon, menu, periodic cycles, notification handling. Qt only lives here."""
+"""System tray application: icon, menu, periodic cycles, notification handling, dialogs. Qt only lives here."""
 from __future__ import annotations
 
 import logging
 import subprocess
 import threading
-from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
-                               QSystemTrayIcon, QVBoxLayout)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel, QMenu, QProgressBar,
+                               QPushButton, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget)
 
 from .config import REPO_ROOT, Config, set_action_mode
 from .cycle import Cycle, CycleResult, Pending
+from .diagnose import Diagnosis, collect_context, diagnose
 from .model import ActionResult, Finding, Summary
 from .notify import BUTTONS_ASK, URGENCY_CRITICAL, URGENCY_NORMAL, Notifier, result_popup
 from .state import State
@@ -24,68 +24,154 @@ ICONS = {"idle": "tray.svg", "attention": "tray-attention.svg", "busy": "tray-bu
 NOTIFY_ICON = str(ASSETS / "tray.svg")
 EXAMPLE_CONFIG = ASSETS / "config.example.toml"
 BUTTON_ACTIONS: list[tuple[str, str]] = [("actions", "Show actions")]
-
-
 AUTO_LABEL = "Next time run automatically, just notify"
 
 
 class PendingDialog(QDialog):
-    """One row per open action: label (+ confirmation reason), 'next time automatically' box, Run, No."""
+    """One row per open action: label (+ reason), 'next time automatically' box, Diagnose, Run, No.
+
+    The window stays open while an action runs: the row shows a busy bar, disappears on success
+    and gets its buttons back on failure (the result itself is reported by the usual notification).
+    """
 
     def __init__(self, pending: list[Pending], on_run: Callable[[Pending, bool], None],
-                 on_decline: Callable[[Pending], None], parent=None):
+                 on_decline: Callable[[Pending], None], on_diagnose: Callable[[Pending], None] | None = None,
+                 parent=None):
         super().__init__(parent)
         self.setWindowTitle("Arch Assistant – pending actions")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.on_run, self.on_decline = on_run, on_decline
+        self.on_diagnose = on_diagnose or (lambda p: None)
+        self.rows: dict[tuple, dict] = {}
         self.labels: list[QLabel] = []
         self.auto_boxes: list[QCheckBox] = []
         self.run_buttons: list[QPushButton] = []
         self.decline_buttons: list[QPushButton] = []
-        layout = QVBoxLayout(self)
-        if not pending:
-            layout.addWidget(QLabel("No pending actions."))
+        self.diagnose_buttons: list[QPushButton] = []
+        self.layout_ = QVBoxLayout(self)
+        self.empty_label = QLabel("No pending actions.")
+        self.layout_.addWidget(self.empty_label)
+        self.empty_label.setVisible(not pending)
         for p in pending:
-            row = QHBoxLayout()
-            text = p.label + (f"\n⚠ {p.reason}" if p.reason else "")
-            label = QLabel(text)
-            label.setWordWrap(True)
-            auto = QCheckBox(AUTO_LABEL)
-            auto.setToolTip("Sets this action to `auto`: it runs without asking and the result pops up in the tray.")
-            run = QPushButton("Run")
-            no = QPushButton("No")
-            run.clicked.connect(lambda _c=False, p=p, auto=auto: (on_run(p, auto.isChecked()), self.close()))
-            no.clicked.connect(lambda _c=False, p=p: (on_decline(p), self.close()))
-            texts = QVBoxLayout()
-            texts.addWidget(label)
-            texts.addWidget(auto)
-            row.addLayout(texts, 1)
-            row.addWidget(run)
-            row.addWidget(no)
-            layout.addLayout(row)
-            self.labels.append(label)
-            self.auto_boxes.append(auto)
-            self.run_buttons.append(run)
-            self.decline_buttons.append(no)
+            self._add_row(p)
         close = QPushButton("Close")
         close.clicked.connect(self.close)
-        layout.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
-        self.resize(600, 120 + 80 * len(pending))
+        self.layout_.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
+        self.resize(680, 140 + 90 * len(pending))
+
+    def _add_row(self, p: Pending) -> None:
+        container = QWidget()
+        row = QHBoxLayout(container)
+        label = QLabel(p.label + (f"\n⚠ {p.reason}" if p.reason else ""))
+        label.setWordWrap(True)
+        auto = QCheckBox(AUTO_LABEL)
+        auto.setToolTip("Sets this action to `auto`: it runs without asking and the result pops up in the tray.")
+        busy = QProgressBar()
+        busy.setRange(0, 0)
+        busy.setFixedWidth(90)
+        busy.setTextVisible(False)
+        busy.hide()
+        diag = QPushButton("Diagnose")
+        diag.setToolTip("Ask Claude what this means and how to fix it (nothing is executed).")
+        run = QPushButton("Run")
+        no = QPushButton("No")
+        diag.clicked.connect(lambda _c=False, p=p: self.on_diagnose(p))
+        run.clicked.connect(lambda _c=False, p=p, auto=auto: self._run_clicked(p, auto.isChecked()))
+        no.clicked.connect(lambda _c=False, p=p: self._decline_clicked(p))
+        texts = QVBoxLayout()
+        texts.addWidget(label)
+        texts.addWidget(auto)
+        row.addLayout(texts, 1)
+        row.addWidget(busy)
+        row.addWidget(diag)
+        row.addWidget(run)
+        row.addWidget(no)
+        self.layout_.addWidget(container)
+        self.rows[p.key] = {"widget": container, "label": label, "auto": auto, "busy": busy,
+                            "diag": diag, "run": run, "no": no}
+        self.labels.append(label)
+        self.auto_boxes.append(auto)
+        self.run_buttons.append(run)
+        self.decline_buttons.append(no)
+        self.diagnose_buttons.append(diag)
+
+    def _run_clicked(self, p: Pending, auto: bool) -> None:
+        self.set_running(p)
+        self.on_run(p, auto)
+
+    def _decline_clicked(self, p: Pending) -> None:
+        self.on_decline(p)
+        self._remove_row(p)
+
+    def set_running(self, p: Pending) -> None:
+        row = self.rows.get(p.key)
+        if row:
+            row["busy"].show()
+            for key in ("run", "no", "diag", "auto"):
+                row[key].setEnabled(False)
+
+    def finish_row(self, p: Pending, ok: bool) -> None:
+        row = self.rows.get(p.key)
+        if not row:
+            return
+        if ok:
+            self._remove_row(p)
+            return
+        row["busy"].hide()
+        for key in ("run", "no", "diag", "auto"):
+            row[key].setEnabled(True)
+        row["label"].setText(row["label"].text().split("\n✗")[0] + "\n✗ last run failed, see the notification")
+
+    def _remove_row(self, p: Pending) -> None:
+        row = self.rows.pop(p.key, None)
+        if row:
+            row["widget"].hide()
+            row["widget"].deleteLater()
+        self.empty_label.setVisible(not self.rows)
+
+
+class DiagnosisWindow(QDialog):
+    """Explanation + suggested commands (read only) with a button that copies the commands."""
+
+    def __init__(self, p: Pending, d: Diagnosis, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Diagnosis – {p.finding.title}")
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        layout = QVBoxLayout(self)
+        self.text = QTextEdit()
+        self.text.setReadOnly(True)
+        cmds = "\n".join(d.commands) if d.commands else "(no commands suggested)"
+        self.text.setPlainText(f"{d.explanation}\n\nConfidence: {d.confidence}\n\nSuggested commands (not executed):\n{cmds}")
+        layout.addWidget(self.text)
+        buttons = QHBoxLayout()
+        copy = QPushButton("Copy commands")
+        copy.clicked.connect(lambda: QApplication.clipboard().setText("\n".join(d.commands)))
+        close = QPushButton("Close")
+        close.clicked.connect(self.close)
+        buttons.addStretch(1)
+        buttons.addWidget(copy)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        self.resize(720, 420)
 
 
 class TrayApp(QObject):
     cycle_finished = Signal(object)                   # CycleResult | None
     action_finished = Signal(object, object, object)  # Pending, ActionResult, list[Finding]
+    diagnosis_ready = Signal(object, object)          # Pending, Diagnosis | None
 
     def __init__(self, cfg: Config, state: State, log: logging.Logger, api_key: str | None,
                  notifier: Notifier | None = None, parent: QObject | None = None):
         super().__init__(parent)
-        self.cfg, self.log = cfg, log
+        self.cfg, self.log, self.api_key = cfg, log, api_key
         self.cycle = Cycle(cfg, state, log, api_key)
         self.notifier = notifier or Notifier(icon=NOTIFY_ICON)
         self.notifier.icon = NOTIFY_ICON
         self.pending: list[Pending] = []
         self.busy = False
         self.dialog: PendingDialog | None = None
+        self.diagnosis_window: DiagnosisWindow | None = None
+        self._diagnosing: set[tuple] = set()
 
         self.tray = QSystemTrayIcon(self._icon("idle"), self)
         self.tray.setToolTip("Arch Assistant")
@@ -97,6 +183,7 @@ class TrayApp(QObject):
 
         self.cycle_finished.connect(self._on_cycle_finished)
         self.action_finished.connect(self._on_action_finished)
+        self.diagnosis_ready.connect(self._on_diagnosis_ready)
         self.timer = QTimer(self)
         self.timer.setInterval(int(cfg.interval_hours * 3600 * 1000))
         self.timer.timeout.connect(self.check_now)
@@ -141,7 +228,8 @@ class TrayApp(QObject):
     def show_actions(self) -> None:
         if self.dialog is not None:
             self.dialog.close()
-        self.dialog = PendingDialog(self.pending, on_run=self.run_pending, on_decline=self.decline)
+        self.dialog = PendingDialog(self.pending, on_run=self.run_pending, on_decline=self.decline,
+                                    on_diagnose=self.diagnose_pending)
         self.dialog.show()
         self.dialog.raise_()
         self.dialog.activateWindow()
@@ -212,11 +300,15 @@ class TrayApp(QObject):
             self.log.info("action %s set to auto", p.action.id)
         if self.busy:
             self.log.info("action %s requested while busy; stays pending", p.action.id)
+            if self.dialog is not None:
+                self.dialog.finish_row(p, ok=False)
             self.notifier.send(Summary("Arch Assistant is busy", f"{p.action.label} stays in the menu, try again later.", []),
                                [], lambda _k: None)
             return
         self.busy = True
         self._refresh_icon()
+        if self.dialog is not None:
+            self.dialog.set_running(p)
 
         def work():
             try:
@@ -233,6 +325,8 @@ class TrayApp(QObject):
         if res.ok:
             self._remove_pending(p)
         self._rebuild_menu()
+        if self.dialog is not None:
+            self.dialog.finish_row(p, res.ok)
         self._popup_result(res, p.action.label, extra)
 
     def _popup_result(self, res: ActionResult, label: str, extra: list[Finding]) -> None:
@@ -256,6 +350,42 @@ class TrayApp(QObject):
                     return a.label
         return res.action_id
 
+    # --- diagnosis ---------------------------------------------------------
+
+    def diagnose_pending(self, p: Pending) -> None:
+        """Collect context and ask Claude in a worker thread; the result opens a window. Nothing is executed."""
+        if p.key in self._diagnosing:
+            return
+        self._diagnosing.add(p.key)
+        self.log.info("diagnose %s requested", p.finding.id)
+        if self.dialog is not None and p.key in self.dialog.rows:
+            self.dialog.rows[p.key]["diag"].setEnabled(False)
+
+        def work():
+            try:
+                context = collect_context(p.finding, self.cfg, self.log)
+                result = diagnose(p.finding, self.cfg, self.api_key, self.log, context=context)
+            except Exception:
+                self.log.exception("diagnose %s crashed", p.finding.id)
+                result = None
+            self.diagnosis_ready.emit(p, result)
+
+        threading.Thread(target=work, name="aa-diagnose", daemon=True).start()
+
+    def _on_diagnosis_ready(self, p: Pending, result: Diagnosis | None) -> None:
+        self._diagnosing.discard(p.key)
+        if self.dialog is not None and p.key in self.dialog.rows:
+            self.dialog.rows[p.key]["diag"].setEnabled(True)
+        if result is None:
+            self.notifier.send(Summary("Diagnosis unavailable", f"Claude could not be reached for {p.finding.title}; see the log.", []),
+                               [], lambda _k: None, urgency=URGENCY_CRITICAL)
+            return
+        self.log.info("diagnose %s: %s", p.finding.id, result.explanation[:200])
+        self.diagnosis_window = DiagnosisWindow(p, result)
+        self.diagnosis_window.show()
+        self.diagnosis_window.raise_()
+        self.diagnosis_window.activateWindow()
+
     # --- menu helpers --------------------------------------------------------
 
     def open_log(self) -> None:
@@ -273,6 +403,7 @@ def run_tray(cfg: Config, state: State, log: logging.Logger, api_key: str | None
     app = QApplication.instance() or QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("arch-assistant")
-    app.setDesktopFileName("arch-assistant")
+    app.setDesktopFileName("arch-assistant")   # KWin looks up arch-assistant.desktop for the window icon
+    app.setWindowIcon(QIcon(NOTIFY_ICON))
     tray = TrayApp(cfg, state, log, api_key)  # noqa: F841 - keeps the tray alive
     return app.exec()

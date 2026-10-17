@@ -121,7 +121,7 @@ def test_diagnose_builds_prompt_and_parses_result(tmp_path, monkeypatch):
     cfg = load_config(tmp_path, tmp_path)
     captured = {}
 
-    def fake_structured(prompt, model_cls, cfg, api_key, log):
+    def fake_structured(prompt, model_cls, cfg, api_key, log, **kw):
         captured["prompt"] = prompt
         return model_cls(explanation="Unit X fails because Y.", commands=["systemctl --user restart x"], confidence="high")
 

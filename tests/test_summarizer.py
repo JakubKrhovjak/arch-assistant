@@ -60,7 +60,7 @@ class FakeMessages:
 
 
 def _fake_client(monkeypatch, messages):
-    monkeypatch.setattr(S.anthropic, "Anthropic", lambda api_key: SimpleNamespace(messages=messages))
+    monkeypatch.setattr(S.anthropic, "Anthropic", lambda api_key, **kw: SimpleNamespace(messages=messages))
 
 
 def test_claude_summary_uses_parse(tmp_path, monkeypatch):
