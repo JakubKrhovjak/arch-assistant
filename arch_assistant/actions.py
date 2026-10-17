@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 import time
 from fnmatch import fnmatch
 from pathlib import Path
@@ -23,14 +24,15 @@ VM_SENSITIVE = ("qemu*", "libvirt*")
 
 def run_action(actions_dir: Path, action: Action, log: logging.Logger) -> ActionResult:
     """Run actions/<id>.sh with the action's args. stdout = short result (3 lines), stderr = detail."""
-    script = actions_dir / f"{action.id}.sh"
+    script = next((p for p in (actions_dir / f"{action.id}.sh", actions_dir / f"{action.id}.py") if p.is_file()), None)
     timeout = TIMEOUTS.get(action.id, DEFAULT_TIMEOUT)
     start = time.monotonic()
-    if not script.is_file():
-        return ActionResult(action.id, False, f"Action script {script.name} not found", "", 0.0)
+    if script is None:
+        return ActionResult(action.id, False, f"Action script {action.id}.sh not found", "", 0.0)
+    cmd = [sys.executable, str(script)] if script.suffix == ".py" else [str(script)]
     log.info("action %s start args=%s", action.id, list(action.args))
     try:
-        proc = subprocess.run([str(script), *action.args], capture_output=True, text=True,
+        proc = subprocess.run([*cmd, *action.args], capture_output=True, text=True,
                               timeout=timeout, env=os.environ.copy(), check=False)
     except subprocess.TimeoutExpired:
         msg = f"Action {action.id} exceeded {timeout / 60:g} min"
