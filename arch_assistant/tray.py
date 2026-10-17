@@ -9,7 +9,8 @@ from typing import Callable
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton, QSystemTrayIcon, QVBoxLayout
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
+                               QSystemTrayIcon, QVBoxLayout)
 
 from .config import REPO_ROOT, Config, set_action_mode
 from .cycle import Cycle, CycleResult, Pending
@@ -25,15 +26,19 @@ EXAMPLE_CONFIG = ASSETS / "config.example.toml"
 BUTTON_ACTIONS: list[tuple[str, str]] = [("actions", "Show actions")]
 
 
-class PendingDialog(QDialog):
-    """One row per open action: label (+ confirmation reason), Run, No."""
+AUTO_LABEL = "Next time run automatically, just notify"
 
-    def __init__(self, pending: list[Pending], on_run: Callable[[Pending], None],
+
+class PendingDialog(QDialog):
+    """One row per open action: label (+ confirmation reason), 'next time automatically' box, Run, No."""
+
+    def __init__(self, pending: list[Pending], on_run: Callable[[Pending, bool], None],
                  on_decline: Callable[[Pending], None], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Arch Assistant – pending actions")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.labels: list[QLabel] = []
+        self.auto_boxes: list[QCheckBox] = []
         self.run_buttons: list[QPushButton] = []
         self.decline_buttons: list[QPushButton] = []
         layout = QVBoxLayout(self)
@@ -44,21 +49,27 @@ class PendingDialog(QDialog):
             text = p.label + (f"\n⚠ {p.reason}" if p.reason else "")
             label = QLabel(text)
             label.setWordWrap(True)
+            auto = QCheckBox(AUTO_LABEL)
+            auto.setToolTip("Sets this action to `auto`: it runs without asking and the result pops up in the tray.")
             run = QPushButton("Run")
             no = QPushButton("No")
-            run.clicked.connect(lambda _c=False, p=p: (on_run(p), self.close()))
+            run.clicked.connect(lambda _c=False, p=p, auto=auto: (on_run(p, auto.isChecked()), self.close()))
             no.clicked.connect(lambda _c=False, p=p: (on_decline(p), self.close()))
-            row.addWidget(label, 1)
+            texts = QVBoxLayout()
+            texts.addWidget(label)
+            texts.addWidget(auto)
+            row.addLayout(texts, 1)
             row.addWidget(run)
             row.addWidget(no)
             layout.addLayout(row)
             self.labels.append(label)
+            self.auto_boxes.append(auto)
             self.run_buttons.append(run)
             self.decline_buttons.append(no)
         close = QPushButton("Close")
         close.clicked.connect(self.close)
         layout.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
-        self.resize(560, 120 + 60 * len(pending))
+        self.resize(600, 120 + 80 * len(pending))
 
 
 class TrayApp(QObject):
@@ -185,11 +196,7 @@ class TrayApp(QObject):
         if key == "no":
             self.decline(p)
         elif key in ("yes", "yes_auto"):
-            if key == "yes_auto":
-                set_action_mode(self.cfg.config_dir, p.action.id, "auto")
-                self.cfg.actions[p.action.id] = "auto"
-                self.log.info("action %s set to auto", p.action.id)
-            self.run_pending(p)
+            self.run_pending(p, auto=(key == "yes_auto"))
 
     # --- actions -----------------------------------------------------------
 
@@ -198,7 +205,11 @@ class TrayApp(QObject):
         self._remove_pending(p)
         self.log.info("declined %s for %s", p.action.id, p.finding.id)
 
-    def run_pending(self, p: Pending) -> None:
+    def run_pending(self, p: Pending, auto: bool = False) -> None:
+        if auto:
+            set_action_mode(self.cfg.config_dir, p.action.id, "auto")
+            self.cfg.actions[p.action.id] = "auto"
+            self.log.info("action %s set to auto", p.action.id)
         if self.busy:
             self.log.info("action %s requested while busy; stays pending", p.action.id)
             self.notifier.send(Summary("Arch Assistant is busy", f"{p.action.label} stays in the menu, try again later.", []),

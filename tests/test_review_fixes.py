@@ -289,11 +289,24 @@ def test_pending_dialog_lists_and_runs(qapp):
     from arch_assistant.tray import PendingDialog
     p = C.Pending(Finding("orphans", "low", "3 orphans", "S", (), ()), Action("remove-orphans", "Remove orphans"), "needs care")
     ran, declined = [], []
-    dlg = PendingDialog([p], on_run=ran.append, on_decline=declined.append)
+    dlg = PendingDialog([p], on_run=lambda p, auto: ran.append((p, auto)), on_decline=declined.append)
     texts = [b.text() for b in dlg.run_buttons]
     assert texts == ["Run"] and "Remove orphans: 3 orphans" in dlg.labels[0].text() and "needs care" in dlg.labels[0].text()
+    assert dlg.auto_boxes[0].text() == "Next time run automatically, just notify" and not dlg.auto_boxes[0].isChecked()
+    dlg.run_buttons[0].click()
+    dlg.auto_boxes[0].setChecked(True)
     dlg.run_buttons[0].click()
     dlg.decline_buttons[0].click()
-    assert ran == [p] and declined == [p]
+    assert ran == [(p, False), (p, True)] and declined == [p]
     dlg.deleteLater()
     qapp.processEvents()
+
+
+def test_tray_run_pending_with_auto_sets_mode(qapp, tray_factory, monkeypatch):
+    app, _ = tray_factory()
+    p = C.Pending(Finding("orphans", "low", "T", "S", (), ()), Action("remove-orphans", "Remove"))
+    monkeypatch.setattr(app.cycle, "run_pending", lambda p: (__import__("arch_assistant.model", fromlist=["ActionResult"]).ActionResult("remove-orphans", True, "ok", "", 0.1), []))
+    app.run_pending(p, auto=True)
+    assert _wait(qapp, lambda: not app.busy)
+    assert app.cfg.actions["remove-orphans"] == "auto"
+    assert (app.cfg.config_dir / "actions.toml").read_text().count('remove-orphans = "auto"') == 1
