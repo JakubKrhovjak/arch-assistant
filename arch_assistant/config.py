@@ -13,7 +13,10 @@ MODES: tuple[str, ...] = ("ask", "auto", "never")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+BACKENDS: tuple[str, ...] = ("claude-code", "api", "template")
+
 DEFAULTS: dict = {
+    "backend": "claude-code",
     "model": "claude-haiku-5-5",
     "interval_hours": 6,
     "api_key_file": "~/.config/zsh/secrets.zsh",
@@ -31,6 +34,7 @@ DEFAULTS: dict = {
 
 @dataclass
 class Config:
+    backend: str
     model: str
     interval_hours: float
     api_key_file: Path
@@ -61,7 +65,9 @@ def load_config(config_dir: Path | None = None, state_dir: Path | None = None) -
     raw = _read_toml(config_dir / "config.toml")
     modes = _read_toml(config_dir / "actions.toml")
     thresholds = {**DEFAULTS["thresholds"], **raw.get("thresholds", {})}
+    backend = str(raw.get("backend", DEFAULTS["backend"]))
     return Config(
+        backend=backend if backend in BACKENDS else DEFAULTS["backend"],
         model=str(raw.get("model", DEFAULTS["model"])),
         interval_hours=float(raw.get("interval_hours", DEFAULTS["interval_hours"])),
         api_key_file=Path(raw.get("api_key_file", DEFAULTS["api_key_file"])).expanduser(),

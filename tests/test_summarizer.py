@@ -42,6 +42,7 @@ def test_build_prompt_collapses_long_items():
 
 def test_summarize_without_key_uses_template(tmp_path):
     cfg = load_config(tmp_path, tmp_path)
+    cfg.backend = "api"
     s = S.summarize([f("orphans", title="Orphans")], "", cfg, None, LOG)
     assert s.headline == "Orphans"
 
@@ -88,6 +89,7 @@ def test_claude_summary_exception_returns_none(tmp_path, monkeypatch):
 
 def test_summarize_falls_back_to_template_on_failure(tmp_path, monkeypatch):
     cfg = load_config(tmp_path, tmp_path)
+    cfg.backend = "api"
     _fake_client(monkeypatch, FakeMessages(None, raise_exc=RuntimeError("boom")))
     s = S.summarize([f("orphans", title="Orphans")], "", cfg, "k", LOG)
     assert s.headline == "Orphans"

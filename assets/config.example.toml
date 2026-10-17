@@ -1,7 +1,14 @@
 # Arch Assistant configuration (~/.config/arch-assistant/config.toml).
 # Action modes (ask / auto / never) live in actions.toml next to this file; the tray writes them.
 
-# Claude model used for the notification summary: claude-haiku-5-5 (default, cheapest) or claude-sonnet-5-5.
+# How the notification text is written:
+#   "claude-code" (default) – headless `claude -p` under your Claude subscription login, no API key needed
+#   "api"                   – Anthropic API with the key from api_key_file
+#   "template"              – no model at all, plain template text
+# Each backend falls back to the next one when it fails.
+backend = "claude-code"
+
+# Claude model used for the summary: claude-haiku-5-5 (default, cheapest) or claude-sonnet-5-5.
 model = "claude-haiku-5-5"
 
 # How often to re-run the checks while the tray is running (hours). The first run is right after login.

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
+import subprocess
 
 import anthropic
 from pydantic import BaseModel
@@ -18,11 +21,19 @@ MAX_TOKENS = 1024
 PROMPT_INSTRUCTIONS = (
     "You write the system notification for an Arch Linux desktop maintenance assistant. "
     "Below is a JSON list of findings from deterministic checks, plus recent Arch news text. "
-    "Write `headline` (max 60 characters) and `body` (max 500 characters, plain text, may use line breaks) "
+    "Write `headline` (max 60 characters) and `body` (max 400 characters, plain text, may use line breaks) "
     "for the notification: factual, no greeting, no preamble, say what was found and what the user can do. "
-    "Put into `risks` only concrete risks that follow from the Arch news or from critical packages "
-    "(kernel, systemd, Plasma, virtualization); otherwise leave it empty.\n"
+    "Put into `risks` at most 3 concrete risks (each under 120 characters) that follow from the Arch news "
+    "or from critical packages (kernel, systemd, Plasma, virtualization); otherwise leave it empty. "
+    "Do not invent facts that are not in the findings.\n"
 )
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {"headline": {"type": "string"}, "body": {"type": "string"},
+                   "risks": {"type": "array", "items": {"type": "string"}}},
+    "required": ["headline", "body", "risks"], "additionalProperties": False,
+}
+CLAUDE_CODE_TIMEOUT = 90
 
 
 class SummaryModel(BaseModel):
@@ -82,9 +93,49 @@ def claude_summary(findings: list[Finding], news_text: str, cfg: Config, api_key
     return Summary(out.headline.strip(), out.body.strip(), [r.strip() for r in out.risks if r.strip()])
 
 
+def claude_code_summary(findings: list[Finding], news_text: str, cfg: Config, log: logging.Logger) -> Summary | None:
+    """Headless `claude -p` under the user's Claude subscription (no API key). None on any failure."""
+    claude = shutil.which("claude")
+    if not claude:
+        log.warning("claude-code backend: `claude` binary not found")
+        return None
+    cmd = [claude, "-p", "--output-format", "json", "--model", cfg.model, "--tools", "",
+           "--no-session-persistence", "--setting-sources", "", "--json-schema", json.dumps(SUMMARY_SCHEMA),
+           build_prompt(findings, news_text)]
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}   # force the subscription login
+    try:
+        cfg.state_dir.mkdir(parents=True, exist_ok=True)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=CLAUDE_CODE_TIMEOUT,
+                              env=env, cwd=str(cfg.state_dir), check=False)
+        data = json.loads(proc.stdout)
+    except subprocess.TimeoutExpired:
+        log.warning("claude-code backend: timeout after %s s", CLAUDE_CODE_TIMEOUT)
+        return None
+    except (OSError, json.JSONDecodeError) as e:
+        log.warning("claude-code backend failed: %s: %s", type(e).__name__, e)
+        return None
+    if proc.returncode != 0 or data.get("is_error") or not isinstance(data.get("structured_output"), dict):
+        log.warning("claude-code backend error: %s", str(data.get("result", proc.stderr))[:200])
+        return None
+    usage = data.get("usage") or {}
+    log.info("claude-code summary: model=%s cost=%s input=%s output=%s", cfg.model, data.get("total_cost_usd"),
+             usage.get("input_tokens"), usage.get("output_tokens"))
+    try:
+        out = SummaryModel.model_validate(data["structured_output"])
+    except Exception as e:
+        log.warning("claude-code backend: invalid structured output: %s", e)
+        return None
+    return Summary(out.headline.strip(), out.body.strip(), [r.strip() for r in out.risks if r.strip()][:3])
+
+
 def summarize(findings: list[Finding], news_text: str, cfg: Config, api_key: str | None,
               log: logging.Logger) -> Summary:
-    if api_key:
+    """backend order: claude-code (subscription) -> api (key) -> template; each falls through on failure."""
+    if cfg.backend == "claude-code":
+        s = claude_code_summary(findings, news_text, cfg, log)
+        if s is not None:
+            return s
+    if cfg.backend in ("claude-code", "api") and api_key:
         s = claude_summary(findings, news_text, cfg, api_key, log)
         if s is not None:
             return s
