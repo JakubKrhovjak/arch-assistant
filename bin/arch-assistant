@@ -1,0 +1,8 @@
+#!/bin/sh
+# Launcher: prefer the project venv (has the anthropic SDK), fall back to the system python.
+here=$(cd "$(dirname "$0")/.." && pwd)
+venv="$HOME/.local/share/arch-assistant/venv/bin/python"
+if [ -x "$venv" ]; then
+    exec "$venv" -m arch_assistant "$@"
+fi
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m arch_assistant "$@"
