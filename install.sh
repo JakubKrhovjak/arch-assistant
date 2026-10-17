@@ -45,10 +45,10 @@ if [[ $dry_run -eq 0 ]]; then
 fi
 
 step_4b_apps="$HOME/.local/share/applications/arch-assistant.desktop"
-echo "-  Desktop entry $step_4b_apps (hidden; gives the windows their icon on Wayland)"
+echo "-  Desktop entry $step_4b_apps (application menu entry; also gives the windows their icon on Wayland)"
 if [[ $dry_run -eq 0 ]]; then
     mkdir -p "$(dirname "$step_4b_apps")"
-    sed -e "s|@BIN@|$here/bin/arch-assistant|g" -e "s|@ICON@|$here/assets/tray.svg|g" \
+    sed -e "s|@BIN@|$here/bin/arch-assistant|g" -e "s|@ICON@|$here/assets/tray.svg|g" -e "s|^NoDisplay=true|NoDisplay=false|" \
         "$here/assets/arch-assistant.desktop" > "$step_4b_apps"
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 fi

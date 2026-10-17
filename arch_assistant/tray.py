@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import signal
 import subprocess
 import threading
 from typing import Callable
@@ -16,6 +18,7 @@ from .cycle import Cycle, CycleResult, Pending
 from .diagnose import Diagnosis, collect_context, diagnose
 from .model import ActionResult, Finding, Summary
 from .notify import BUTTONS_ASK, URGENCY_CRITICAL, URGENCY_NORMAL, Notifier, result_popup
+from .single_instance import InstanceLock
 from .state import State
 from .summarizer import template_summary
 
@@ -405,10 +408,36 @@ class TrayApp(QObject):
 
 
 def run_tray(cfg: Config, state: State, log: logging.Logger, api_key: str | None) -> int:
+    lock = InstanceLock(cfg.state_dir / "tray.lock")
+    other = lock.acquire()
+    if other is not None:
+        # launched from the menu while the tray already runs: ask that instance to show its actions
+        log.info("tray already running (pid %s); asking it to show actions", other)
+        if other > 0:
+            try:
+                os.kill(other, signal.SIGUSR1)
+            except OSError:
+                pass
+        return 0
     app = QApplication.instance() or QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("arch-assistant")
     app.setDesktopFileName("arch-assistant")   # KWin looks up arch-assistant.desktop for the window icon
     app.setWindowIcon(QIcon(NOTIFY_ICON))
-    tray = TrayApp(cfg, state, log, api_key)  # noqa: F841 - keeps the tray alive
-    return app.exec()
+    tray = TrayApp(cfg, state, log, api_key)
+    wanted = {"show": False}
+    signal.signal(signal.SIGUSR1, lambda *_a: wanted.__setitem__("show", True))
+    poll = QTimer()   # Python signal handlers only run while bytecode executes: poll from the Qt loop
+    poll.setInterval(250)
+
+    def check_signal():
+        if wanted["show"]:
+            wanted["show"] = False
+            tray.show_actions()
+
+    poll.timeout.connect(check_signal)
+    poll.start()
+    try:
+        return app.exec()
+    finally:
+        lock.release()
