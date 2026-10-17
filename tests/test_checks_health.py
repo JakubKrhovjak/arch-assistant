@@ -111,3 +111,21 @@ def test_journal_errors_above_threshold(shim, check_runner):
 def test_journal_errors_below_threshold(shim, check_runner):
     shim.cmd("journalctl", _journal(10, 5))
     assert check_runner.run("journal-errors", {"AA_JOURNAL_ERR": "50"}).severity == "none"
+
+
+SYSTEMCTL_APP_LAUNCH = r'''
+case "$*" in
+  "--user --failed --plain --no-legend") printf 'app-com.github.IsmaelMartinez.teams_for_linux@b90577a6.service loaded failed failed Teams for Linux\napp-org.kde.dolphin@1.scope loaded failed failed Dolphin\nplasma-krunner.service loaded failed failed KRunner\n' ;;
+  *"list-units"*) printf 'a.service loaded active running A\n' ;;
+  *"show -p Id,NRestarts"*) printf 'Id=a.service\nNRestarts=0\n\n' ;;
+  *) exit 0 ;;
+esac
+'''
+
+
+def test_failed_units_ignores_app_launch_units(shim, check_runner):
+    # Plasma wraps every launched app in a transient app-<id>@<random>.service / .scope; killing the app
+    # leaves it "failed". That is the user's doing, not a broken service.
+    shim.cmd("systemctl", script=SYSTEMCTL_APP_LAUNCH)
+    f = check_runner.run("failed-units")
+    assert [i["name"] for i in f.items] == ["plasma-krunner.service"]

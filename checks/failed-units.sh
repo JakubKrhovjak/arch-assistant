@@ -5,8 +5,11 @@ set -uo pipefail
 RESTART_LIMIT=5
 
 failed_units() {   # $1 = "" | "--user"; prints "unit loadstate"
+    # app-<id>@<random>.service / app-*.scope are transient wrappers Plasma creates for launched apps;
+    # they end "failed" whenever the user kills the app, so they are not broken services.
     # shellcheck disable=SC2086
-    systemctl $1 --failed --plain --no-legend 2>/dev/null | awk '{print $1, $2}'
+    systemctl $1 --failed --plain --no-legend 2>/dev/null \
+        | awk '$1 !~ /^app-.*@.*\.service$/ && $1 !~ /^app-.*\.scope$/ {print $1, $2}'
 }
 
 restarting_units() {   # $1 = "" | "--user"
