@@ -73,7 +73,9 @@ def needs_confirmation(action: Action, finding: Finding, findings: list[Finding]
 
 
 def effective_mode(action_id: str, cfg: Config, args: tuple[str, ...] = ()) -> Mode:
+    """Configured mode, capped at `ask` for actions that must never run unattended."""
     mode = cfg.actions.get(action_id, "ask")
-    if mode == "auto" and action_id in NEVER_AUTO:
+    never_auto = action_id in NEVER_AUTO or (action_id == "restart-unit" and args[:1] == ("system",))
+    if mode == "auto" and never_auto:
         return "ask"
     return mode
