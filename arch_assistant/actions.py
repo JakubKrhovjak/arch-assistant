@@ -18,7 +18,7 @@ DEFAULT_TIMEOUT = 300
 # Checks the tray runs right after an action finishes (regardless of its result).
 POST_HOOKS: dict[str, tuple[str, ...]] = {"update": ("secure-boot", "reboot-needed")}
 # Actions that may never run without a click, whatever the configured mode says.
-NEVER_AUTO = {"remove-package", "pacdiff"}
+NEVER_AUTO = {"remove-package", "remove-driver-packages", "pacdiff"}
 VM_SENSITIVE = ("qemu*", "libvirt*")
 
 

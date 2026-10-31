@@ -17,11 +17,11 @@ def test_jetbrains_old_finds_only_superseded_versions(check_runner, tmp_path):
     home = _home(tmp_path)
     f = check_runner.run("jetbrains-old", {"AA_HOME": str(home)})
     assert f.severity == "low"
-    assert [i["name"] for i in f.items] == ["GoLand2025.2"]
+    assert [i["name"] for i in f.items] == ["GoLand2025.2", "IntelliJIdea2026.1-backup"]
     assert f.items[0]["size_mb"] == 4
     assert sorted(p.split("/")[-3] for p in f.items[0]["paths"]) == [".cache", ".config", "share"]
-    assert f.actions[0].id == "clean-jetbrains-old" and f.actions[0].args == ("GoLand2025.2",)
-    assert f.title == "Old JetBrains IDE versions: 4 MB"
+    assert f.actions[0].id == "clean-jetbrains-old" and f.actions[0].args == ("GoLand2025.2", "IntelliJIdea2026.1-backup")
+    assert f.title == "Old JetBrains IDE versions: 5 MB"
     assert "GoLand 2025.2 (current 2026.1)" in f.summary
 
 
@@ -89,8 +89,8 @@ def test_user_cache_marks_safe_entries(shim, check_runner, tmp_path):
     assert f.severity == "low"
     by = {i["name"]: i for i in f.items}
     assert set(by) == {"JetBrains", "yay", "foo"}
-    assert by["yay"]["safe"] is True and by["JetBrains"]["safe"] is True and by["foo"]["safe"] is False
-    assert f.actions[0].id == "clean-user-cache" and set(f.actions[0].args) == {"JetBrains", "yay"}
+    assert by["yay"]["safe"] is True and by["JetBrains"]["safe"] is False and by["foo"]["safe"] is False
+    assert f.actions[0].id == "clean-user-cache" and list(f.actions[0].args) == ["yay"]
 
 
 def test_user_cache_none(shim, check_runner, tmp_path):

@@ -38,7 +38,7 @@ entry and copies the example config. Root for the actions comes from the existin
 Clicking **No** snoozes that finding for `snooze_days` (default 7): no notification and no menu entry, even if the finding changes in the meantime. When the snooze runs out and the finding still applies, it is reported once more. Critical findings (unsigned UKI, failed Secure Boot check) are never snoozed.
 
 Action modes are in `~/.config/arch-assistant/actions.toml` as `id = "ask" | "auto" | "never"`;
-the tray writes `auto` when you click "Yes, automatically next time". `remove-package` and `pacdiff`
+the tray writes `auto` when you click "Yes, automatically next time". `remove-package`, `remove-driver-packages` and `pacdiff`
 never run unattended, nor does `restart-unit` for system units. An automatic `update` still asks when
 Arch news reports manual intervention for a pending package, or when `qemu`/`libvirt` would be
 updated while a VM is running.
@@ -54,9 +54,11 @@ updated while a VM is running.
 | `mirrors` | `refresh-mirrors` |
 | `pkg-cache` | `clean-pkg-cache` (paccache -rk2, yay -Sc) |
 | `orphans` | `remove-orphans` |
-| `jetbrains-old` | `clean-jetbrains-old <Name2025.2 …>` (never the current version) |
-| `user-cache` | `clean-user-cache <name …>` (safe list only) |
+| `jetbrains-old` | `clean-jetbrains-old <Name2025.2 …>` (current = `dataDirectoryName` of Toolbox-installed IDEs, else highest version; never a current one) |
+| `toolbox-cache` | `clean-toolbox-cache` (`~/.cache/JetBrains/Toolbox/temp` and `download`) |
+| `user-cache` | `clean-user-cache <name …>` (safe list only; safe caches are also offered when together above the limit) |
 | `unused-apps` | `remove-package <pkg>` |
+| `hardware-drivers` | `remove-driver-packages <pkg …>` (GPU / Wi-Fi drivers for absent hardware) |
 | `disk-space`, `journal-errors`, `reboot-needed`, `secure-boot`, `timeshift`, `clocksource`, `vuln-packages`, `resource-hogs`, `docker-vm` | report only |
 
 A check is a script in `checks/` that prints one JSON object (`id`, `severity`, `title`, `summary`,
