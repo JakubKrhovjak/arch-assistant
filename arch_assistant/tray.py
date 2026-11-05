@@ -30,6 +30,20 @@ BUTTON_ACTIONS: list[tuple[str, str]] = [("actions", "Show actions")]
 AUTO_LABEL = "Next time run automatically, just notify"
 
 
+def format_item(item: dict) -> str:
+    """One line per finding item: 'name  old → new  [source]' for package-like items (⚠ = critical),
+    otherwise the item's key=value pairs."""
+    if {"name", "new"} <= item.keys():
+        mark = "⚠ " if item.get("critical") else "  "
+        source = f"  [{item['source']}]" if item.get("source") else ""
+        return f"{mark}{item['name']}  {item.get('old') or '?'} → {item['new']}{source}"
+    return ", ".join(f"{k}={v}" for k, v in item.items())
+
+
+def _item_order(item: dict) -> tuple:
+    return (not item.get("critical"), str(item.get("source", "")), str(item.get("name", "")))
+
+
 class PendingDialog(QDialog):
     """One row per open action: label (+ reason), 'next time automatically' box, Diagnose, Run, No.
 
@@ -51,6 +65,8 @@ class PendingDialog(QDialog):
         self.run_buttons: list[QPushButton] = []
         self.decline_buttons: list[QPushButton] = []
         self.diagnose_buttons: list[QPushButton] = []
+        self.details_buttons: list[QPushButton] = []
+        self.details_window: ItemsWindow | None = None
         self.layout_ = QVBoxLayout(self)
         self.empty_label = QLabel("No pending actions.")
         self.layout_.addWidget(self.empty_label)
@@ -86,17 +102,28 @@ class PendingDialog(QDialog):
         texts.addWidget(auto)
         row.addLayout(texts, 1)
         row.addWidget(busy)
+        self.rows[p.key] = {"widget": container, "label": label, "auto": auto, "busy": busy,
+                            "diag": diag, "run": run, "no": no}
+        if p.finding.items:
+            details = QPushButton("Details")
+            details.setToolTip(f"Show the {len(p.finding.items)} items this action affects.")
+            details.clicked.connect(lambda _c=False, p=p: self._show_details(p))
+            row.addWidget(details)
+            self.rows[p.key]["details"] = details
+            self.details_buttons.append(details)
         row.addWidget(diag)
         row.addWidget(run)
         row.addWidget(no)
         self.layout_.addWidget(container)
-        self.rows[p.key] = {"widget": container, "label": label, "auto": auto, "busy": busy,
-                            "diag": diag, "run": run, "no": no}
         self.labels.append(label)
         self.auto_boxes.append(auto)
         self.run_buttons.append(run)
         self.decline_buttons.append(no)
         self.diagnose_buttons.append(diag)
+
+    def _show_details(self, p: Pending) -> None:
+        self.details_window = ItemsWindow(p, self)
+        self.details_window.show()
 
     def _run_clicked(self, p: Pending, auto: bool) -> None:
         self.set_running(p)
@@ -131,6 +158,31 @@ class PendingDialog(QDialog):
             row["widget"].hide()
             row["widget"].deleteLater()
         self.empty_label.setVisible(not self.rows)
+
+
+class ItemsWindow(QDialog):
+    """Read-only list of what a pending action affects (e.g. every pending update: name, old → new, source)."""
+
+    def __init__(self, p: Pending, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Details – {p.finding.title}")
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        layout = QVBoxLayout(self)
+        self.text = QTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.text.setPlainText("\n".join(format_item(i) for i in sorted(p.finding.items, key=_item_order)))
+        layout.addWidget(self.text)
+        buttons = QHBoxLayout()
+        copy = QPushButton("Copy")
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(self.text.toPlainText()))
+        close = QPushButton("Close")
+        close.clicked.connect(self.close)
+        buttons.addStretch(1)
+        buttons.addWidget(copy)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        self.resize(620, 460)
 
 
 class DiagnosisWindow(QDialog):

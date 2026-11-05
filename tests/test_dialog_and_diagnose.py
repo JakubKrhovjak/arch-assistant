@@ -85,6 +85,38 @@ def test_dialog_diagnose_button_calls_back(qapp):
     qapp.processEvents()
 
 
+UPDATE_ITEMS = (
+    {"name": "zlib", "old": "1.3-1", "new": "1.3-2", "source": "repo", "critical": False},
+    {"name": "kwin", "old": "6.8.2-1", "new": "6.8.2-2", "source": "repo", "critical": True},
+    {"name": "com.google.Chrome", "old": "", "new": "156.0.8078.79", "source": "flatpak", "critical": False},
+)
+
+
+def test_dialog_details_button_only_for_findings_with_items(qapp):
+    from arch_assistant.tray import PendingDialog
+    plain = _pending()
+    updates = C.Pending(Finding("updates", "high", "3 pending updates", "S", UPDATE_ITEMS, ()), Action("update", "Update system"))
+    dlg = PendingDialog([plain, updates], on_run=lambda p, auto: None, on_decline=lambda p: None, on_diagnose=lambda p: None)
+    assert "details" not in dlg.rows[plain.key]
+    assert len(dlg.details_buttons) == 1
+    dlg.details_buttons[0].click()
+    qapp.processEvents()
+    text = dlg.details_window.text.toPlainText()
+    lines = text.splitlines()
+    assert "3 pending updates" in dlg.details_window.windowTitle()
+    assert "kwin" in lines[0] and "6.8.2-1 → 6.8.2-2" in lines[0] and "⚠" in lines[0]  # critical first
+    assert any("com.google.Chrome" in l and "? → 156.0.8078.79" in l and "[flatpak]" in l for l in lines)
+    assert any("zlib" in l and "[repo]" in l for l in lines)
+    dlg.details_window.close()
+    dlg.deleteLater()
+    qapp.processEvents()
+
+
+def test_format_item_falls_back_to_key_values_for_other_items():
+    from arch_assistant.tray import format_item
+    assert format_item({"path": "/var/cache", "size": "2G"}) == "path=/var/cache, size=2G"
+
+
 # --- diagnose module ---------------------------------------------------------------------------
 
 def test_collect_context_uses_script_when_present(tmp_path):
