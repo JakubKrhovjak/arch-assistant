@@ -33,6 +33,7 @@ entry and copies the example config. Root for the actions comes from the existin
 | `interval_hours` | re-check period while running | 6 |
 | `api_key_file` | shell file with `ANTHROPIC_API_KEY=` | `~/.config/zsh/secrets.zsh` |
 | `critical_packages` | patterns named in update notifications | kernel, systemd, Plasma, Mesa, qemu, libvirt, docker, k3s |
+| `terminal_progress` | show the progress of long actions you start (update, mirrors, package cache, orphans, removing packages) in a Ghostty window | `true` |
 | `[thresholds]` | disk %, ESP MB, cache sizes, journal errors, unused days, hog limits, mirror age, update count, re-report days | see example |
 
 Clicking **No** snoozes that finding for `snooze_days` (default 7): no notification and no menu entry, even if the finding changes in the meantime. When the snooze runs out and the finding still applies, it is reported once more. Critical findings (unsigned UKI, failed Secure Boot check) are never snoozed.
@@ -54,7 +55,8 @@ updated while a VM is running.
 | `mirrors` | `refresh-mirrors` |
 | `pkg-cache` | `clean-pkg-cache` (paccache -rk2, yay -Sc) |
 | `orphans` | `remove-orphans` |
-| `jetbrains-old` | `clean-jetbrains-old <Name2025.2 …>` (current = `dataDirectoryName` of Toolbox-installed IDEs, else highest version; never a current one) |
+| `jetbrains-old` | `clean-jetbrains-old <Name2025.2 …>`: only the plugins (`~/.local/share/JetBrains`) and caches (`~/.cache/JetBrains`) of a version superseded by a newer one that already has its own settings directory; settings in `~/.config/JetBrains`, backups (`*-backup`, `*.pred-*`) and Toolbox-installed versions (`dataDirectoryName`) are always kept |
+| `localsend` | `restart-localsend` (reset-failed + restart of the `localsend.service` user unit; nothing reported when the unit is not installed) |
 | `toolbox-cache` | `clean-toolbox-cache` (`~/.cache/JetBrains/Toolbox/temp` and `download`) |
 | `user-cache` | `clean-user-cache <name …>` (safe list only; safe caches are also offered when together above the limit) |
 | `unused-apps` | `remove-package <pkg>` |
@@ -64,7 +66,14 @@ updated while a VM is running.
 A check is a script in `checks/` that prints one JSON object (`id`, `severity`, `title`, `summary`,
 `items`, `actions`), reads thresholds from `AA_*` environment variables and exits non-zero only when
 it crashed. An action is a script in `actions/` that gets the action's args, prints a short result on
-stdout (first lines go to the popup) and details on stderr (log). See
+stdout (first lines go to the popup) and details on stderr (log).
+
+Long actions started by a click (`TERMINAL_ACTIONS` in `arch_assistant/actions.py`) run in a Ghostty
+window titled "Arch Assistant: <action>": the stderr output (pacman, yay, flatpak) is shown live, the
+short result at the end, and the window stays open until Enter. The tray still gets the same result
+(popup, menu, log) as soon as the action ends; closing the window early stops the action and counts as
+a failure. Automatic actions, `arch-assistant act`, `terminal_progress = false` and a session without
+Ghostty or a display run in the background as before. See
 `docs/superpowers/specs/2026-10-17-arch-assistant-design.md` for the full contract.
 
 ## Debugging
