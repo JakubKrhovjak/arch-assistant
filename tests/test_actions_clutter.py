@@ -23,23 +23,55 @@ def test_run_action_supports_python_scripts(tmp_path):
     assert r.ok and r.output == "hi x"
 
 
-def test_clean_jetbrains_old_removes_superseded(tmp_path, monkeypatch):
+def test_clean_jetbrains_old_removes_plugins_and_caches_but_keeps_settings(tmp_path, monkeypatch):
     home = tmp_path / "home"
     _mk(home / ".config" / "JetBrains" / "GoLand2025.2", 1024)
     _mk(home / ".cache" / "JetBrains" / "GoLand2025.2", 1024)
+    _mk(home / ".local" / "share" / "JetBrains" / "GoLand2025.2", 1024)
     _mk(home / ".config" / "JetBrains" / "GoLand2026.1")
     monkeypatch.setenv("AA_HOME", str(home))
     r = run_action(ACTIONS, Action("clean-jetbrains-old", "Remove old versions", ("GoLand2025.2",)), LOG)
     assert r.ok and r.output == "Removed: GoLand2025.2 (2 MB)"
-    assert not (home / ".config" / "JetBrains" / "GoLand2025.2").exists()
     assert not (home / ".cache" / "JetBrains" / "GoLand2025.2").exists()
+    assert not (home / ".local" / "share" / "JetBrains" / "GoLand2025.2").exists()
+    assert (home / ".config" / "JetBrains" / "GoLand2025.2").exists()   # settings are never deleted
     assert (home / ".config" / "JetBrains" / "GoLand2026.1").exists()
+
+
+def test_clean_jetbrains_old_keeps_everything_after_the_update_morning(tmp_path, monkeypatch, check_runner):
+    """The 2026-11-08 case: an IDE update to 2026.3 next to the old 2026.2 and a manual settings backup."""
+    home = tmp_path / "home"
+    for rel in ("IntelliJIdea2026.2", "IntelliJIdea2026.3", "IntelliJIdea2026.3.pred-importem", "IntelliJIdea2026.3-backup"):
+        _mk(home / ".config" / "JetBrains" / rel)
+    _mk(home / ".cache" / "JetBrains" / "IntelliJIdea2026.2")
+    monkeypatch.setenv("AA_HOME", str(home))
+    f = check_runner.run("jetbrains-old", {"AA_HOME": str(home)})
+    assert [i["name"] for i in f.items] == ["IntelliJIdea2026.2"]
+    assert all("/.config/" not in p for p in f.items[0]["paths"])
+    r = run_action(ACTIONS, Action("clean-jetbrains-old", "Remove old versions", ("IntelliJIdea2026.2",)), LOG)
+    assert r.ok
+    assert sorted(p.name for p in (home / ".config" / "JetBrains").iterdir()) == [
+        "IntelliJIdea2026.2", "IntelliJIdea2026.3", "IntelliJIdea2026.3-backup", "IntelliJIdea2026.3.pred-importem"]
+    for backup in ("IntelliJIdea2026.3-backup", "IntelliJIdea2026.3.pred-importem"):
+        r = run_action(ACTIONS, Action("clean-jetbrains-old", "Remove old versions", (backup,)), LOG)
+        assert not r.ok and (home / ".config" / "JetBrains" / backup).exists()
+
+
+def test_clean_jetbrains_old_needs_a_newer_settings_directory(tmp_path, monkeypatch, check_runner):
+    home = tmp_path / "home"
+    _mk(home / ".cache" / "JetBrains" / "GoLand2025.2")
+    _mk(home / ".config" / "JetBrains" / "GoLand2025.2")   # no newer GoLand has started yet
+    monkeypatch.setenv("AA_HOME", str(home))
+    assert check_runner.run("jetbrains-old", {"AA_HOME": str(home)}).severity == "none"
+    r = run_action(ACTIONS, Action("clean-jetbrains-old", "Remove old versions", ("GoLand2025.2",)), LOG)
+    assert not r.ok and (home / ".cache" / "JetBrains" / "GoLand2025.2").exists()
 
 
 def test_clean_jetbrains_old_refuses_current_version(tmp_path, monkeypatch):
     home = tmp_path / "home"
     _mk(home / ".config" / "JetBrains" / "GoLand2025.2")
     _mk(home / ".config" / "JetBrains" / "GoLand2026.1")
+    _mk(home / ".cache" / "JetBrains" / "GoLand2026.1")
     monkeypatch.setenv("AA_HOME", str(home))
     r = run_action(ACTIONS, Action("clean-jetbrains-old", "Remove old versions", ("GoLand2026.1",)), LOG)
     assert not r.ok and r.output == "Refused: GoLand2026.1 is the current version"

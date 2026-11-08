@@ -33,8 +33,9 @@ def test_jetbrains_toolbox_installed_dir_is_never_old(check_runner, tmp_path):
     _toolbox(home, "pycharm", _info("PyCharm2025.2"))
     for rel in ("PyCharm2025.2", "PyCharm2025.1", "CLion2025.2", "IntelliJIdea2026.1-backup"):
         _mk(home / ".config/JetBrains" / rel)
-    _mk(home / ".cache/JetBrains/PyCharm2025.2")
-    assert sorted(_old(check_runner, home)) == ["CLion2025.2", "IntelliJIdea2026.1-backup", "PyCharm2025.1"]
+        _mk(home / ".cache/JetBrains" / rel)
+    # CLion has no newer settings directory and a backup is not a version: only the superseded PyCharm
+    assert _old(check_runner, home) == ["PyCharm2025.1"]
 
 
 def test_jetbrains_toolbox_collects_every_data_directory_name(check_runner, tmp_path):
@@ -42,36 +43,38 @@ def test_jetbrains_toolbox_collects_every_data_directory_name(check_runner, tmp_
     _toolbox(home, "idea", '{"a": {"dataDirectoryName": "IntelliJIdea2026.1"}, "b": {"dataDirectoryName": "IntelliJIdea2026.2"}}')
     for rel in ("IntelliJIdea2026.1", "IntelliJIdea2026.2", "IntelliJIdea2025.3"):
         _mk(home / ".config/JetBrains" / rel)
+        _mk(home / ".local/share/JetBrains" / rel)
     assert _old(check_runner, home) == ["IntelliJIdea2025.3"]
 
 
-def test_jetbrains_fallback_highest_version_without_toolbox_info(check_runner, tmp_path):
+def test_jetbrains_fallback_without_toolbox_info(check_runner, tmp_path):
     home = tmp_path / "home"
     for rel in ("GoLand2025.2", "GoLand2026.1", "GoLand2026.1-backup"):
         _mk(home / ".config/JetBrains" / rel)
-    assert _old(check_runner, home) == ["GoLand2025.2", "GoLand2026.1-backup"]
+        _mk(home / ".cache/JetBrains" / rel)
+    assert _old(check_runner, home) == ["GoLand2025.2"]
 
 
-def test_jetbrains_uninstalled_single_version_is_old(check_runner, tmp_path):
+def test_jetbrains_uninstalled_single_version_is_kept(check_runner, tmp_path):
     home = tmp_path / "home"
     _toolbox(home, "pycharm", _info("PyCharm2025.2"))
     _mk(home / ".config/JetBrains/CLion2025.2")
-    f = check_runner.run("jetbrains-old", {"AA_HOME": str(home)})
-    assert [i["name"] for i in f.items] == ["CLion2025.2"]
-    assert "not installed" in f.summary
+    _mk(home / ".cache/JetBrains/CLion2025.2")
+    assert check_runner.run("jetbrains-old", {"AA_HOME": str(home)}).severity == "none"
 
 
 def test_clean_jetbrains_old_refuses_installed_and_deletes_old(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setenv("AA_HOME", str(home))
     _toolbox(home, "pycharm", _info("PyCharm2025.2"))
-    _mk(home / ".config/JetBrains/PyCharm2025.2")
-    _mk(home / ".config/JetBrains/CLion2025.2")
+    for rel in ("PyCharm2025.2", "PyCharm2025.1"):
+        _mk(home / ".config/JetBrains" / rel)
+        _mk(home / ".cache/JetBrains" / rel)
     r = run_action(ACTIONS, Action("clean-jetbrains-old", "x", ("PyCharm2025.2",)), LOG)
-    assert not r.ok and (home / ".config/JetBrains/PyCharm2025.2").exists()
-    r = run_action(ACTIONS, Action("clean-jetbrains-old", "x", ("CLion2025.2",)), LOG)
-    assert r.ok and not (home / ".config/JetBrains/CLion2025.2").exists()
-    assert (home / ".config/JetBrains/PyCharm2025.2").exists()
+    assert not r.ok and (home / ".cache/JetBrains/PyCharm2025.2").exists()
+    r = run_action(ACTIONS, Action("clean-jetbrains-old", "x", ("PyCharm2025.1",)), LOG)
+    assert r.ok and not (home / ".cache/JetBrains/PyCharm2025.1").exists()
+    assert (home / ".config/JetBrains/PyCharm2025.1").exists() and (home / ".cache/JetBrains/PyCharm2025.2").exists()
 
 
 def test_toolbox_cache_reported_and_cleaned(check_runner, tmp_path, monkeypatch):

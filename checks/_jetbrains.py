@@ -1,13 +1,21 @@
-"""Shared helper: JetBrains IDE version directories under ~/.config, ~/.local/share and ~/.cache."""
+"""Shared helper: superseded JetBrains IDE version directories.
+
+Only the plugins (~/.local/share/JetBrains/<Name>) and caches (~/.cache/JetBrains/<Name>) of an old version are
+ever offered for removal. Settings in ~/.config/JetBrains are never touched: an IDE update copies them only on
+the new version's first start, and deleting them earlier loses them for good. A version counts as old only when
+a newer version of the same product already has its own settings directory. Backups (IntelliJIdea2026.1-backup,
+IntelliJIdea2026.3.pred-importem, anything after the version) are not versions and are never touched.
+"""
 from __future__ import annotations
 
 import os
 import re
 from pathlib import Path
 
-VERSION_RE = re.compile(r"^([A-Za-z]+)(\d{4}\.\d+)(?:-[A-Za-z0-9._-]+)?$")
+VERSION_RE = re.compile(r"^([A-Za-z]+)(\d{4}\.\d+)$")
 DATA_DIR_RE = re.compile(r'"dataDirectoryName"\s*:\s*"([^"]+)"')
-ROOTS = (".config/JetBrains", ".local/share/JetBrains", ".cache/JetBrains")
+CONFIG_ROOT = ".config/JetBrains"
+DATA_ROOTS = (".local/share/JetBrains", ".cache/JetBrains")   # the only places anything is removed from
 TOOLBOX_APPS = ".local/share/JetBrains/Toolbox/apps"
 
 
@@ -26,26 +34,19 @@ def dir_size_mb(path: Path) -> int:
     return round(total / 1_048_576)
 
 
-def scan(home: Path) -> dict[str, dict[str, list[Path]]]:
-    """product -> version -> directories, e.g. {"GoLand": {"2025.2": [...], "2026.1": [...]}}.
-
-    A backup such as IntelliJIdea2026.1-backup is filed under its own version "2026.1-backup".
-    """
-    found: dict[str, dict[str, list[Path]]] = {}
-    for rel in ROOTS:
-        root = home / rel
-        if not root.is_dir():
-            continue
+def _versions_in(root: Path) -> dict[str, dict[str, Path]]:
+    """product -> version -> directory for plain version directories (no backups) directly in root."""
+    found: dict[str, dict[str, Path]] = {}
+    if root.is_dir():
         for entry in root.iterdir():
             m = VERSION_RE.match(entry.name)
-            if m and entry.is_dir():
-                version = entry.name[len(m.group(1)):]
-                found.setdefault(m.group(1), {}).setdefault(version, []).append(entry)
+            if m and entry.is_dir() and not entry.is_symlink():
+                found.setdefault(m.group(1), {})[m.group(2)] = entry
     return found
 
 
 def version_key(v: str) -> tuple[int, ...]:
-    return tuple(int(p) for p in v.split("-", 1)[0].split("."))
+    return tuple(int(p) for p in v.split("."))
 
 
 def toolbox_data_dirs(home: Path) -> set[str]:
@@ -61,39 +62,35 @@ def toolbox_data_dirs(home: Path) -> set[str]:
     return names
 
 
-def _highest_plain(versions: dict[str, list[Path]]) -> str:
-    plain = [v for v in versions if "-" not in v]
-    return max(plain, key=version_key) if plain else ""
-
-
 def old_versions(home: Path) -> list[dict]:
-    """Version directories of IDEs that are not current; sorted by product, version.
+    """Plugin and cache directories of superseded IDE versions; sorted by product, version.
 
-    Current = dataDirectoryName of the Toolbox-installed IDEs. Without any Toolbox product-info.json
-    it falls back to the highest plain version per product. Backup directories are never current
-    unless an installed IDE names them as its data directory.
+    Old = not an installed IDE's dataDirectoryName (Toolbox product-info.json) and a newer version of the same
+    product has a settings directory in ~/.config/JetBrains. `paths` never contains anything under ~/.config.
     """
     installed = toolbox_data_dirs(home)
+    configs = _versions_in(home / CONFIG_ROOT)
+    data: dict[str, dict[str, list[Path]]] = {}
+    for rel in DATA_ROOTS:
+        for product, versions in _versions_in(home / rel).items():
+            for version, path in versions.items():
+                data.setdefault(product, {}).setdefault(version, []).append(path)
     out = []
-    for product, versions in sorted(scan(home).items()):
-        if installed:
-            mine = sorted(n[len(product):] for n in installed if (m := VERSION_RE.match(n)) and m.group(1) == product)
-            current = ", ".join(mine) or "not installed"
-        else:
-            current = _highest_plain(versions)
-        for version in sorted(versions, key=lambda v: (version_key(v), v)):
+    for product, versions in sorted(data.items()):
+        configured = configs.get(product, {})
+        for version in sorted(versions, key=version_key):
             name = f"{product}{version}"
-            if name in installed or (not installed and version == current):
+            newer = [v for v in configured if version_key(v) > version_key(version)]
+            if name in installed or not newer:
                 continue
+            current = max(newer, key=version_key)
             paths = versions[version]
-            out.append({"name": name, "product": product, "version": version,
-                        "current": current, "size_mb": sum(dir_size_mb(p) for p in paths),
-                        "paths": [str(p) for p in paths]})
+            out.append({"name": name, "product": product, "version": version, "current": current,
+                        "size_mb": sum(dir_size_mb(p) for p in paths), "paths": [str(p) for p in paths]})
     return out
 
 
 def current_versions(home: Path) -> set[str]:
-    installed = toolbox_data_dirs(home)
-    if installed:
-        return installed
-    return {f"{product}{h}" for product, versions in scan(home).items() if (h := _highest_plain(versions))}
+    """Installed IDEs (Toolbox) plus the newest settings directory of every product: never removed."""
+    newest = {f"{product}{max(versions, key=version_key)}" for product, versions in _versions_in(home / CONFIG_ROOT).items()}
+    return toolbox_data_dirs(home) | newest

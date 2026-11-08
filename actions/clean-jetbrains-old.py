@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Action: delete superseded JetBrains IDE version directories. Args: names like GoLand2025.2.
+"""Action: delete the plugins and caches of superseded JetBrains IDE versions. Args: names like GoLand2025.2.
 
-Re-scans the directories itself and refuses any name that is the current version of its product.
+Re-scans the directories itself, refuses any name that is a current version, and deletes only directories
+directly under ~/.local/share/JetBrains or ~/.cache/JetBrains; settings in ~/.config/JetBrains are never deleted.
 """
 import shutil
 import sys
@@ -18,6 +19,7 @@ def main(names: list[str]) -> int:
     home = _jetbrains.home_dir()
     old = {o["name"]: o for o in _jetbrains.old_versions(home)}
     current = _jetbrains.current_versions(home)
+    allowed = {(home / rel).resolve() for rel in _jetbrains.DATA_ROOTS}
     for name in names:   # validate everything before deleting anything
         if name in current:
             print(f"Refused: {name} is the current version")
@@ -25,6 +27,10 @@ def main(names: list[str]) -> int:
         if name not in old:
             print(f"Refused: {name} is not a known old version")
             return 1
+        for p in old[name]["paths"]:
+            if Path(p).resolve().parent not in allowed:
+                print(f"Refused: {p} is outside the JetBrains plugin and cache directories")
+                return 1
     removed = []
     for name in names:
         for p in old[name]["paths"]:

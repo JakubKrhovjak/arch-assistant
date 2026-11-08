@@ -13,15 +13,15 @@ def _home(tmp_path):
     return home
 
 
-def test_jetbrains_old_finds_only_superseded_versions(check_runner, tmp_path):
+def test_jetbrains_old_finds_only_superseded_plugins_and_caches(check_runner, tmp_path):
     home = _home(tmp_path)
     f = check_runner.run("jetbrains-old", {"AA_HOME": str(home)})
     assert f.severity == "low"
-    assert [i["name"] for i in f.items] == ["GoLand2025.2", "IntelliJIdea2026.1-backup"]
-    assert f.items[0]["size_mb"] == 4
-    assert sorted(p.split("/")[-3] for p in f.items[0]["paths"]) == [".cache", ".config", "share"]
-    assert f.actions[0].id == "clean-jetbrains-old" and f.actions[0].args == ("GoLand2025.2", "IntelliJIdea2026.1-backup")
-    assert f.title == "Old JetBrains IDE versions: 5 MB"
+    assert [i["name"] for i in f.items] == ["GoLand2025.2"]   # the -backup settings directory is not a version
+    assert f.items[0]["size_mb"] == 3
+    assert sorted(p.split("/")[-3] for p in f.items[0]["paths"]) == [".cache", "share"]   # never .config
+    assert f.actions[0].id == "clean-jetbrains-old" and f.actions[0].args == ("GoLand2025.2",)
+    assert f.title == "Old JetBrains IDE plugins and caches: 3 MB"
     assert "GoLand 2025.2 (current 2026.1)" in f.summary
 
 
