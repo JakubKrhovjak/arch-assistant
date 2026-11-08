@@ -21,8 +21,8 @@ done
 step() { echo "$1. $2"; }
 run() { [[ $dry_run -eq 1 ]] || "$@"; }
 
-step 1 "Install system packages: pacman-contrib arch-audit python-jeepney shellcheck (sudo)"
-run sudo pacman -S --needed --noconfirm pacman-contrib arch-audit python-jeepney shellcheck
+step 1 "Install system packages: pyside6 pacman-contrib arch-audit python-jeepney shellcheck (sudo)"
+run sudo pacman -S --needed --noconfirm pyside6 pacman-contrib arch-audit python-jeepney shellcheck
 
 step 2 "Create venv $venv (system site packages for PySide6) and install the package"
 if [[ $dry_run -eq 0 ]]; then
