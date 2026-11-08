@@ -20,6 +20,8 @@ DEFAULTS: dict = {
     "model": "claude-haiku-5-5",
     "interval_hours": 6,
     "api_key_file": "~/.config/zsh/secrets.zsh",
+    # Long actions started by a click (update, cleanups) show their progress in a terminal window
+    "terminal_progress": True,
     "critical_packages": [
         "linux", "linux-lts", "linux-firmware", "systemd", "plasma-*", "kwin",
         "mesa", "qemu*", "libvirt*", "docker", "k3s", "com.google.Chrome",
@@ -46,6 +48,7 @@ class Config:
     checks_dir: Path
     actions_dir: Path
     config_error: str | None = None
+    terminal_progress: bool = True
 
 
 def default_config_dir() -> Path:
@@ -88,6 +91,7 @@ def load_config(config_dir: Path | None = None, state_dir: Path | None = None) -
         checks_dir=REPO_ROOT / "checks",
         actions_dir=REPO_ROOT / "actions",
         config_error=" ; ".join(e for e in (err_cfg, err_modes) if e) or None,
+        terminal_progress=bool(raw.get("terminal_progress", DEFAULTS["terminal_progress"])),
     )
 
 

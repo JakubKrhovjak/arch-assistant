@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Iterable
 
-from .actions import POST_HOOKS, effective_mode, needs_confirmation, run_action, running_vms
+from .actions import (POST_HOOKS, TERMINAL_ACTIONS, effective_mode, needs_confirmation, run_action,
+                      run_action_in_terminal, running_vms, terminal_available)
 from .checks import run_all
 from .config import Config, check_env
 from .model import Action, ActionResult, Finding, Summary
@@ -111,14 +112,21 @@ class Cycle:
         return result
 
     def run_pending(self, pending: Pending) -> tuple[ActionResult, list[Finding]]:
-        """Run a queued action on the user's request; holds the cycle lock while running."""
+        """Run a queued action on the user's request; holds the cycle lock while running.
+
+        A long action (TERMINAL_ACTIONS) shows its progress in a terminal window when
+        `terminal_progress` is on and a terminal can be opened; otherwise it runs in the background.
+        """
         with self._lock:
-            res, extra = self._run_action(pending.action)
+            visible = (self.cfg.terminal_progress and pending.action.id in TERMINAL_ACTIONS
+                       and terminal_available())
+            res, extra = self._run_action(pending.action, visible=visible)
             self.state.save()
             return res, extra
 
-    def _run_action(self, action: Action) -> tuple[ActionResult, list[Finding]]:
-        res = run_action(self.cfg.actions_dir, action, self.log)
+    def _run_action(self, action: Action, visible: bool = False) -> tuple[ActionResult, list[Finding]]:
+        runner = run_action_in_terminal if visible else run_action
+        res = runner(self.cfg.actions_dir, action, self.log)
         if action.id == "update" and res.ok:
             self.state.mark_update_run(self.now())
         hooks = POST_HOOKS.get(action.id, ())

@@ -40,6 +40,13 @@ class Shim:
         return self.calls_file.read_text().splitlines() if self.calls_file.exists() else []
 
 
+@pytest.fixture(autouse=True)
+def _no_display(monkeypatch):
+    """Tests never open real windows: without a display, actions run in the background, not in a terminal."""
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+
+
 @pytest.fixture
 def shim(tmp_path, monkeypatch) -> Shim:
     return Shim(tmp_path / "bin", monkeypatch)

@@ -18,6 +18,11 @@ interval_hours = 6
 # the assistant works the same, only the notification text comes from a template instead of Claude.
 api_key_file = "~/.config/zsh/secrets.zsh"
 
+# Show the progress of long actions started by a click (update, mirrors, package cache, orphans,
+# removing packages) in a Ghostty window: the pacman/yay output is visible and sudo can ask there.
+# The window stays open until Enter. Automatic actions and a session without a terminal run in the background.
+terminal_progress = true
+
 # Packages named explicitly in the update notification (fnmatch patterns). Any of these pending
 # makes the updates finding "high" and triggers a new notification.
 critical_packages = ["linux", "linux-lts", "linux-firmware", "systemd", "plasma-*", "kwin", "mesa", "qemu*", "libvirt*", "docker", "k3s", "com.google.Chrome"]

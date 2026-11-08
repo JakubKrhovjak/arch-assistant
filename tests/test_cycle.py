@@ -142,6 +142,48 @@ def test_run_pending_executes_and_marks(env):
     assert res.ok and res.output == "removed" and extra == []
 
 
+def _runner_calls(monkeypatch, available=True):
+    """Records which runner run_pending picks: the terminal one or the background one."""
+    calls = []
+
+    def fake(name):
+        def run(actions_dir, action, log):
+            calls.append((name, action.id))
+            return C.ActionResult(action.id, True, "ok", "", 0.0)
+        return run
+
+    monkeypatch.setattr(C, "run_action", fake("background"))
+    monkeypatch.setattr(C, "run_action_in_terminal", fake("terminal"))
+    monkeypatch.setattr(C, "terminal_available", lambda: available)
+    return calls
+
+
+def test_run_pending_long_action_runs_in_terminal(env, monkeypatch):
+    cfg, _ = env
+    _check(cfg.checks_dir, "orphans", items=[{"name": "a"}], actions=["remove-orphans"])
+    c = _cycle(env)
+    p = c.run().pending[0]
+    calls = _runner_calls(monkeypatch)
+    c.run_pending(p)
+    assert calls == [("terminal", "remove-orphans")]
+
+
+@pytest.mark.parametrize("progress, available, action", [
+    (False, True, "remove-orphans"),   # turned off in config.toml
+    (True, False, "remove-orphans"),   # no terminal or no graphical session
+    (True, True, "restart-unit"),      # a short action
+])
+def test_run_pending_falls_back_to_background(env, monkeypatch, progress, available, action):
+    cfg, _ = env
+    cfg.terminal_progress = progress
+    _check(cfg.checks_dir, "x", items=[{"name": "a"}], actions=[action])
+    c = _cycle(env)
+    p = c.run().pending[0]
+    calls = _runner_calls(monkeypatch, available)
+    c.run_pending(p)
+    assert calls == [("background", action)]
+
+
 def test_cycle_saves_state_file(env):
     cfg, state = env
     _check(cfg.checks_dir, "orphans", severity="none")
