@@ -10,8 +10,8 @@ from typing import Callable
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel, QMenu, QProgressBar,
-                               QPushButton, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMenu,
+                               QProgressBar, QPushButton, QSystemTrayIcon, QTextEdit, QVBoxLayout)
 
 from .config import REPO_ROOT, Config, set_action_mode
 from .cycle import Cycle, CycleResult, Pending
@@ -29,6 +29,68 @@ EXAMPLE_CONFIG = ASSETS / "config.example.toml"
 BUTTON_ACTIONS: list[tuple[str, str]] = [("actions", "Show actions")]
 AUTO_LABEL = "Next time run automatically, just notify"
 
+# Look of the desktop panel's popups: compact rounded cards on the window colour, the accent only on the main action.
+# Colours come from the palette only (the desktop's colour scheme through the Qt platform theme), never hard-coded.
+STYLE = """
+QFrame#card { background: palette(button); border-radius: 12px; }
+QLabel#title { font-size: 14pt; font-weight: 600; }
+QLabel#subtitle, QLabel#reason { color: palette(placeholder-text); }
+QLabel#rowTitle { font-weight: 600; }
+QPushButton#primary { background: palette(highlight); color: palette(highlighted-text); border: none;
+                      border-radius: 8px; padding: 5px 16px; font-weight: 600; }
+QPushButton#primary:disabled { background: palette(mid); }
+QTextEdit { background: palette(base); border: none; border-radius: 12px; padding: 8px; }
+"""
+
+
+class StyledDialog(QDialog):
+    """Common frame of the app's windows: stays on top, panel-like style, margins and spacing of the popups."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setStyleSheet(STYLE)
+        self.layout_ = QVBoxLayout(self)
+        self.layout_.setContentsMargins(16, 16, 16, 16)
+        self.layout_.setSpacing(10)
+
+    def add_header(self, title: str, subtitle: str = "") -> QLabel:
+        """Icon, title and a dimmed subtitle (returned, so it can be updated)."""
+        header = QHBoxLayout()
+        header.setSpacing(10)
+        icon = QLabel()
+        icon.setPixmap(QIcon(NOTIFY_ICON).pixmap(28, 28))
+        header.addWidget(icon)
+        texts = QVBoxLayout()
+        texts.setSpacing(0)
+        texts.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        title_label = QLabel(title)
+        title_label.setObjectName("title")
+        sub = QLabel(subtitle)
+        sub.setObjectName("subtitle")
+        texts.addWidget(title_label)
+        texts.addWidget(sub)
+        header.addLayout(texts, 1)
+        self.layout_.addLayout(header)
+        return sub
+
+    def add_buttons(self, *buttons: QPushButton) -> None:
+        """Buttons at the bottom right."""
+        row = QHBoxLayout()
+        row.addStretch(1)
+        for b in buttons:
+            row.addWidget(b)
+        self.layout_.addLayout(row)
+        match_heights(*buttons)
+
+
+def match_heights(*buttons: QPushButton) -> None:
+    """The accent button has its own padding; keep it as tall as the native buttons next to it."""
+    height = max(b.sizeHint().height() for b in buttons)
+    for b in buttons:
+        b.setMinimumHeight(height)
+
 
 def format_item(item: dict) -> str:
     """One line per finding item: 'name  old → new  [source]' for package-like items (⚠ = critical),
@@ -44,19 +106,17 @@ def _item_order(item: dict) -> tuple:
     return (not item.get("critical"), str(item.get("source", "")), str(item.get("name", "")))
 
 
-class PendingDialog(QDialog):
-    """One row per open action: label (+ reason), 'next time automatically' box, Diagnose, Run, No.
+class PendingDialog(StyledDialog):
+    """One card per open action: label (+ reason), 'next time automatically' box, Details, Diagnose, Run, No.
 
-    The window stays open while an action runs: the row shows a busy bar, disappears on success
+    The window stays open while an action runs: the card shows a busy bar, disappears on success
     and gets its buttons back on failure (the result itself is reported by the usual notification).
     """
 
     def __init__(self, pending: list[Pending], on_run: Callable[[Pending, bool], None],
                  on_decline: Callable[[Pending], None], on_diagnose: Callable[[Pending], None] | None = None,
                  parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Arch Assistant – pending actions")
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        super().__init__("Arch Assistant – pending actions", parent)
         self.on_run, self.on_decline = on_run, on_decline
         self.on_diagnose = on_diagnose or (lambda p: None)
         self.rows: dict[tuple, dict] = {}
@@ -67,21 +127,31 @@ class PendingDialog(QDialog):
         self.diagnose_buttons: list[QPushButton] = []
         self.details_buttons: list[QPushButton] = []
         self.details_window: ItemsWindow | None = None
-        self.layout_ = QVBoxLayout(self)
+        self.subtitle = self.add_header("Pending actions")
         self.empty_label = QLabel("No pending actions.")
+        self.empty_label.setObjectName("subtitle")
         self.layout_.addWidget(self.empty_label)
         self.empty_label.setVisible(not pending)
         for p in pending:
             self._add_row(p)
+        self._update_subtitle()
         close = QPushButton("Close")
         close.clicked.connect(self.close)
-        self.layout_.addWidget(close, alignment=Qt.AlignmentFlag.AlignRight)
-        self.resize(680, 140 + 90 * len(pending))
+        self.add_buttons(close)
+        self.resize(700, 150 + 110 * len(pending))
+
+    def _update_subtitle(self) -> None:
+        n = len(self.rows)
+        self.subtitle.setText(f"{n} waiting for your decision" if n else "Everything is done")
 
     def _add_row(self, p: Pending) -> None:
-        container = QWidget()
+        container = QFrame()
+        container.setObjectName("card")
         row = QHBoxLayout(container)
+        row.setContentsMargins(14, 12, 14, 12)
+        row.setSpacing(8)
         label = QLabel(p.label + (f"\n⚠ {p.reason}" if p.reason else ""))
+        label.setObjectName("rowTitle")
         label.setWordWrap(True)
         auto = QCheckBox(AUTO_LABEL)
         auto.setToolTip("Sets this action to `auto`: it runs without asking and the result pops up in the tray.")
@@ -93,11 +163,13 @@ class PendingDialog(QDialog):
         diag = QPushButton("Diagnose")
         diag.setToolTip("Ask Claude what this means and how to fix it (nothing is executed).")
         run = QPushButton("Run")
+        run.setObjectName("primary")
         no = QPushButton("No")
         diag.clicked.connect(lambda _c=False, p=p: self.on_diagnose(p))
         run.clicked.connect(lambda _c=False, p=p, auto=auto: self._run_clicked(p, auto.isChecked()))
         no.clicked.connect(lambda _c=False, p=p: self._decline_clicked(p))
         texts = QVBoxLayout()
+        texts.setSpacing(6)
         texts.addWidget(label)
         texts.addWidget(auto)
         row.addLayout(texts, 1)
@@ -114,6 +186,7 @@ class PendingDialog(QDialog):
         row.addWidget(diag)
         row.addWidget(run)
         row.addWidget(no)
+        match_heights(diag, run, no, *([self.rows[p.key]["details"]] if "details" in self.rows[p.key] else []))
         self.layout_.addWidget(container)
         self.labels.append(label)
         self.auto_boxes.append(auto)
@@ -158,56 +231,47 @@ class PendingDialog(QDialog):
             row["widget"].hide()
             row["widget"].deleteLater()
         self.empty_label.setVisible(not self.rows)
+        self._update_subtitle()
 
 
-class ItemsWindow(QDialog):
+class ItemsWindow(StyledDialog):
     """Read-only list of what a pending action affects (e.g. every pending update: name, old → new, source)."""
 
     def __init__(self, p: Pending, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(f"Details – {p.finding.title}")
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        layout = QVBoxLayout(self)
+        super().__init__(f"Details – {p.finding.title}", parent)
+        self.add_header(p.finding.title, f"{len(p.finding.items)} items")
         self.text = QTextEdit()
         self.text.setReadOnly(True)
         self.text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.text.setFontFamily("monospace")
         self.text.setPlainText("\n".join(format_item(i) for i in sorted(p.finding.items, key=_item_order)))
-        layout.addWidget(self.text)
-        buttons = QHBoxLayout()
+        self.layout_.addWidget(self.text)
         copy = QPushButton("Copy")
         copy.clicked.connect(lambda: QApplication.clipboard().setText(self.text.toPlainText()))
         close = QPushButton("Close")
         close.clicked.connect(self.close)
-        buttons.addStretch(1)
-        buttons.addWidget(copy)
-        buttons.addWidget(close)
-        layout.addLayout(buttons)
-        self.resize(620, 460)
+        self.add_buttons(copy, close)
+        self.resize(640, 480)
 
 
-class DiagnosisWindow(QDialog):
+class DiagnosisWindow(StyledDialog):
     """Explanation + suggested commands (read only) with a button that copies the commands."""
 
     def __init__(self, p: Pending, d: Diagnosis, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(f"Diagnosis – {p.finding.title}")
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        layout = QVBoxLayout(self)
+        super().__init__(f"Diagnosis – {p.finding.title}", parent)
+        self.add_header(p.finding.title, f"Diagnosis · confidence {d.confidence}")
         self.text = QTextEdit()
         self.text.setReadOnly(True)
         cmds = "\n".join(d.commands) if d.commands else "(no commands suggested)"
         self.text.setPlainText(f"{d.explanation}\n\nConfidence: {d.confidence}\n\nSuggested commands (not executed):\n{cmds}")
-        layout.addWidget(self.text)
-        buttons = QHBoxLayout()
+        self.layout_.addWidget(self.text)
         copy = QPushButton("Copy commands")
+        copy.setObjectName("primary")
         copy.clicked.connect(lambda: QApplication.clipboard().setText("\n".join(d.commands)))
         close = QPushButton("Close")
         close.clicked.connect(self.close)
-        buttons.addStretch(1)
-        buttons.addWidget(copy)
-        buttons.addWidget(close)
-        layout.addLayout(buttons)
-        self.resize(720, 420)
+        self.add_buttons(copy, close)
+        self.resize(720, 440)
 
 
 class TrayApp(QObject):
