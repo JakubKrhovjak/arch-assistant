@@ -72,3 +72,53 @@ def test_update_failure_first_error_line(shim, monkeypatch):
     assert not r.ok
     assert r.output.startswith("Update failed: error: failed to commit transaction")
     assert not any(c.startswith("yay -Sua") for c in shim.calls())
+
+
+# --- selective update (args from the Updates window) ---------------------------------------------
+
+def _run(shim, monkeypatch, *args, yay_list=""):
+    env = _setup(shim, PACMAN_OK, yay_list=yay_list)
+    monkeypatch.setenv("AA_PACMAN_LOG", env["AA_PACMAN_LOG"])
+    return run_action(ACTIONS, Action("update", "Update system", tuple(args)), LOG)
+
+
+def test_update_selected_repo_aur_and_flatpak(shim, monkeypatch):
+    r = _run(shim, monkeypatch, "repo", "aur:mbpoll-git", "aur:yay-bin", "flatpak:org.x")
+    assert r.ok, r.detail
+    assert r.output.splitlines()[0] == "Updated 3 packages (repo), 2 (AUR) and 1 Flatpaks"
+    calls = shim.calls()
+    assert "sudo /usr/bin/pacman -Syu --noconfirm" in calls
+    assert "yay -S --aur --noconfirm mbpoll-git yay-bin" in calls
+    assert "sudo /usr/bin/flatpak update -y --noninteractive org.x" in calls
+    assert not any(c.startswith(("yay -Sua", "yay -Qua", "flatpak remote-ls")) for c in calls)
+
+
+def test_update_selected_aur_only_skips_pacman_and_flatpak(shim, monkeypatch):
+    r = _run(shim, monkeypatch, "aur:mbpoll-git", yay_list="aur/mbpoll-git 1-1 -> 1-2\naur/other 1 -> 2\n")
+    assert r.ok, r.detail
+    assert r.output.splitlines()[0] == "Updated 0 packages (repo), 1 (AUR) and 0 Flatpaks"
+    calls = shim.calls()
+    assert calls == ["yay -S --aur --noconfirm mbpoll-git"]
+
+
+def test_update_selected_flatpak_only(shim, monkeypatch):
+    r = _run(shim, monkeypatch, "flatpak:com.google.Chrome", "flatpak:org.x")
+    assert r.ok, r.detail
+    assert r.output.splitlines()[0] == "Updated 0 packages (repo), 0 (AUR) and 2 Flatpaks"
+    assert shim.calls() == ["sudo /usr/bin/flatpak update -y --noninteractive com.google.Chrome org.x",
+                            "flatpak update -y --noninteractive com.google.Chrome org.x"]
+
+
+def test_update_selected_repo_only_leaves_aur_and_flatpak(shim, monkeypatch):
+    r = _run(shim, monkeypatch, "repo", yay_list="aur/x 1 -> 2\n")
+    assert r.ok, r.detail
+    assert r.output.splitlines()[0] == "Updated 3 packages (repo), 0 (AUR) and 0 Flatpaks"
+    assert not any(c.startswith(("yay", "sudo /usr/bin/flatpak")) for c in shim.calls())
+
+
+def test_update_rejects_bad_arguments_before_running_anything(shim, monkeypatch):
+    for bad in ("aur:--noconfirm", "flatpak:", "everything", "aur:a b"):
+        shim.calls_file.unlink(missing_ok=True)
+        r = _run(shim, monkeypatch, bad)
+        assert not r.ok and r.output.startswith("Update failed:"), bad
+        assert shim.calls() == [], bad

@@ -3,7 +3,6 @@ from arch_assistant.config import check_env, load_config, set_action_mode
 
 def test_defaults_without_files(tmp_path):
     cfg = load_config(tmp_path, tmp_path)
-    assert cfg.model == "claude-haiku-5-5"
     assert cfg.actions == {}
     assert cfg.thresholds["esp_mb"] == 30
     assert cfg.interval_hours == 6
@@ -11,11 +10,10 @@ def test_defaults_without_files(tmp_path):
     assert cfg.checks_dir.name == "checks" and cfg.actions_dir.name == "actions"
 
 
-def test_config_toml_overrides_model(tmp_path):
-    (tmp_path / "config.toml").write_text(
-        'model = "claude-sonnet-5-5"\n[thresholds]\nesp_mb = 50\n')
+def test_config_toml_overrides_thresholds(tmp_path):
+    (tmp_path / "config.toml").write_text('interval_hours = 3\n[thresholds]\nesp_mb = 50\n')
     cfg = load_config(tmp_path, tmp_path)
-    assert cfg.model == "claude-sonnet-5-5"
+    assert cfg.interval_hours == 3
     assert cfg.thresholds["esp_mb"] == 50
     assert cfg.thresholds["disk_pct"] == 10
 
@@ -36,9 +34,9 @@ def test_check_env_contains_thresholds(tmp_path):
 
 
 def test_config_toml_syntax_error_falls_back_to_defaults(tmp_path):
-    (tmp_path / "config.toml").write_text('model = "claude-sonnet-5-5"\nss\n')
+    (tmp_path / "config.toml").write_text('interval_hours = 3\nss\n')
     cfg = load_config(tmp_path, tmp_path)
-    assert cfg.model == "claude-haiku-5-5"
+    assert cfg.interval_hours == 6
     assert cfg.config_error and "line 2" in cfg.config_error
 
 

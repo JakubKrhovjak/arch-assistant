@@ -1,9 +1,9 @@
 [project]
 name = "arch-assistant"
 version = "0.1.0"
-description = "Tray assistant for Arch Linux + Plasma: updates, system health, cleanup, Claude summaries"
+description = "Tray assistant for Arch Linux + Plasma: updates, packages, system health, cleanup"
 requires-python = ">=3.13"
-dependencies = ["anthropic>=1.0", "pydantic>=2", "jeepney>=0.8"]
+dependencies = ["jeepney>=0.8"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

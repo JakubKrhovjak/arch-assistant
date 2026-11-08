@@ -1,4 +1,4 @@
-"""Configuration: config.toml (thresholds, model), actions.toml (action modes), environment for checks."""
+"""Configuration: config.toml (interval, thresholds), actions.toml (action modes), environment for checks."""
 from __future__ import annotations
 
 import os
@@ -13,13 +13,8 @@ MODES: tuple[str, ...] = ("ask", "auto", "never")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-BACKENDS: tuple[str, ...] = ("claude-code", "api", "template")
-
 DEFAULTS: dict = {
-    "backend": "claude-code",
-    "model": "claude-haiku-5-5",
     "interval_hours": 6,
-    "api_key_file": "~/.config/zsh/secrets.zsh",
     # Long actions started by a click (update, cleanups) show their progress in a terminal window
     "terminal_progress": True,
     "critical_packages": [
@@ -36,10 +31,7 @@ DEFAULTS: dict = {
 
 @dataclass
 class Config:
-    backend: str
-    model: str
     interval_hours: float
-    api_key_file: Path
     critical_packages: list[str]
     thresholds: dict[str, float]
     actions: dict[str, Mode]
@@ -77,12 +69,8 @@ def load_config(config_dir: Path | None = None, state_dir: Path | None = None) -
     raw, err_cfg = _read_toml_safe(config_dir / "config.toml")
     modes, err_modes = _read_toml_safe(config_dir / "actions.toml")
     thresholds = {**DEFAULTS["thresholds"], **raw.get("thresholds", {})}
-    backend = str(raw.get("backend", DEFAULTS["backend"]))
     return Config(
-        backend=backend if backend in BACKENDS else DEFAULTS["backend"],
-        model=str(raw.get("model", DEFAULTS["model"])),
         interval_hours=float(raw.get("interval_hours", DEFAULTS["interval_hours"])),
-        api_key_file=Path(raw.get("api_key_file", DEFAULTS["api_key_file"])).expanduser(),
         critical_packages=list(raw.get("critical_packages", DEFAULTS["critical_packages"])),
         thresholds=thresholds,
         actions={k: v for k, v in modes.items() if v in MODES},

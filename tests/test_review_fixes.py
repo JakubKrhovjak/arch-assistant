@@ -1,4 +1,4 @@
-"""Tests for the final-review fix pass (robustness, locking, pending queue, dedup, prompt hygiene, tray)."""
+"""Tests for the final-review fix pass (robustness, locking, pending queue, dedup, tray)."""
 import json
 import logging
 import os
@@ -11,7 +11,6 @@ import pytest
 
 from arch_assistant import actions as A
 from arch_assistant import cycle as C
-from arch_assistant import summarizer as S
 from arch_assistant.config import load_config
 from arch_assistant.model import Action, Finding, Summary
 from arch_assistant.state import State
@@ -75,7 +74,7 @@ def _env(tmp_path, monkeypatch):
     cfg.actions_dir = tmp_path / "actions"
     cfg.checks_dir.mkdir()
     cfg.actions_dir.mkdir()
-    monkeypatch.setattr(C, "summarize", lambda findings, news, cfg, key, log: Summary("H", "B", []))
+    monkeypatch.setattr(C, "template_summary", lambda findings: Summary("H", "B", []))
     return cfg, State(tmp_path / "state" / "state.json")
 
 
@@ -89,7 +88,7 @@ def _check(d, cid, severity="low", items=(), actions=(), error=False):
 
 def test_decline_waits_for_the_cycle_lock(tmp_path, monkeypatch):
     cfg, state = _env(tmp_path, monkeypatch)
-    c = C.Cycle(cfg, state, LOG, None, now=lambda: NOW)
+    c = C.Cycle(cfg, state, LOG, now=lambda: NOW)
     p = C.Pending(Finding("orphans", "low", "T", "S", (), (Action("remove-orphans", "R"),)), Action("remove-orphans", "R"))
     c._lock.acquire()
     done = threading.Event()
@@ -104,7 +103,7 @@ def test_decline_waits_for_the_cycle_lock(tmp_path, monkeypatch):
 def test_pending_is_rebuilt_from_all_current_findings(tmp_path, monkeypatch):
     cfg, state = _env(tmp_path, monkeypatch)
     _check(cfg.checks_dir, "orphans", items=[{"name": "a"}], actions=["remove-orphans"])
-    c = C.Cycle(cfg, state, LOG, None, now=lambda: NOW)
+    c = C.Cycle(cfg, state, LOG, now=lambda: NOW)
     first = c.run()
     assert len(first.pending) == 1 and len(first.new_pending) == 1
     second = c.run()
@@ -115,7 +114,7 @@ def test_pending_is_rebuilt_from_all_current_findings(tmp_path, monkeypatch):
 def test_declined_finding_is_not_pending(tmp_path, monkeypatch):
     cfg, state = _env(tmp_path, monkeypatch)
     _check(cfg.checks_dir, "orphans", items=[{"name": "a"}], actions=["remove-orphans"])
-    c = C.Cycle(cfg, state, LOG, None, now=lambda: NOW)
+    c = C.Cycle(cfg, state, LOG, now=lambda: NOW)
     p = c.run().pending[0]
     c.decline(p)
     assert c.run().pending == []
@@ -125,7 +124,7 @@ def test_never_mode_is_not_pending(tmp_path, monkeypatch):
     cfg, state = _env(tmp_path, monkeypatch)
     cfg.actions["remove-orphans"] = "never"
     _check(cfg.checks_dir, "orphans", items=[{"name": "a"}], actions=["remove-orphans"])
-    assert C.Cycle(cfg, state, LOG, None, now=lambda: NOW).run().pending == []
+    assert C.Cycle(cfg, state, LOG, now=lambda: NOW).run().pending == []
 
 
 # --- 4. updates rule: versions matter and a completed update resets the record ------------------
@@ -186,16 +185,6 @@ def test_running_vms_returns_none_on_failure(shim):
     assert A.running_vms() is None
 
 
-# --- 7. nothing from /home reaches the model -------------------------------------------------
-
-def test_prompt_strips_paths_and_home_strings():
-    f = Finding("jetbrains-old", "low", "Old", "S",
-                ({"name": "GoLand2025.2", "size_mb": 3, "paths": ["/home/redo/.config/JetBrains/GoLand2025.2"]},
-                 {"name": "/home/redo/.cache/foo", "size_mb": 1}), ())
-    prompt = S.build_prompt([f], "")
-    assert "/home/" not in prompt and "GoLand2025.2" in prompt
-
-
 # --- tray: worker exceptions, pending replacement, dialog, icon ------------------------------
 
 @pytest.fixture
@@ -236,7 +225,7 @@ def tray_factory(qapp, tmp_path, monkeypatch):
     def make():
         cfg, state = _env(tmp_path, monkeypatch)
         transport = FakeTransport()
-        app = TrayApp(cfg, state, LOG, None, notifier=Notifier(transport=transport))
+        app = TrayApp(cfg, state, LOG, notifier=Notifier(transport=transport))
         app.timer.stop()
         apps.append(app)
         return app, transport

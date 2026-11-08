@@ -15,12 +15,14 @@ from typing import Callable
 from .config import Config, Mode
 from .model import Action, ActionResult, Finding
 
-TIMEOUTS: dict[str, float] = {"update": 1800}
+TIMEOUTS: dict[str, float] = {"update": 1800, "uninstall": 900, "install": 1800}
 DEFAULT_TIMEOUT = 300
 # Checks the tray runs right after an action finishes (regardless of its result).
 POST_HOOKS: dict[str, tuple[str, ...]] = {"update": ("secure-boot", "reboot-needed")}
-# Actions that may never run without a click, whatever the configured mode says.
-NEVER_AUTO = {"remove-package", "remove-driver-packages", "pacdiff"}
+# Actions that may never run without a click, whatever the configured mode says. The system update only
+# runs from the Updates tab, uninstalling from the Installed tab and installing from the Browse tab, where the
+# packages are reviewed and picked.
+NEVER_AUTO = {"remove-package", "remove-driver-packages", "pacdiff", "update", "uninstall", "install"}
 VM_SENSITIVE = ("qemu*", "libvirt*")
 
 
@@ -68,7 +70,7 @@ def run_action(actions_dir: Path, action: Action, log: logging.Logger) -> Action
 
 # Actions that take long enough to be worth watching: a click runs them in a terminal window.
 TERMINAL_ACTIONS = frozenset({"update", "refresh-mirrors", "clean-pkg-cache", "remove-orphans",
-                              "remove-package", "remove-driver-packages"})
+                              "remove-package", "remove-driver-packages", "uninstall", "install"})
 TERMINAL = "ghostty"
 
 # Runs inside the terminal: the action's stderr (pacman/yay output) is shown live and saved, stdout

@@ -37,14 +37,14 @@ def env(tmp_path, monkeypatch):
     cfg.actions_dir = tmp_path / "actions"
     cfg.checks_dir.mkdir()
     cfg.actions_dir.mkdir()
-    monkeypatch.setattr(C, "summarize", lambda findings, news, cfg, key, log: Summary("H", "B", []))
+    monkeypatch.setattr(C, "template_summary", lambda findings: Summary("H", "B", []))
     state = State(tmp_path / "state" / "state.json")
     return cfg, state
 
 
 def _cycle(env, running_vms=lambda: [], now=NOW):
     cfg, state = env
-    return C.Cycle(cfg, state, LOG, api_key=None, running_vms=running_vms, now=lambda: now)
+    return C.Cycle(cfg, state, LOG, running_vms=running_vms, now=lambda: now)
 
 
 def test_cycle_quiet_when_nothing_new(env):
@@ -62,34 +62,36 @@ def test_cycle_ask_creates_pending(env):
     assert r.auto_run == []
 
 
-def test_cycle_auto_runs_action_and_post_hooks(env):
+def test_cycle_update_never_auto_post_hooks_run_on_click(env):
     cfg, state = env
-    cfg.actions["update"] = "auto"
+    cfg.actions["update"] = "auto"   # capped at ask: the update only runs from the Updates window
     _check(cfg.checks_dir, "arch-news", severity="none")
     _check(cfg.checks_dir, "updates", "high", items=[{"name": "linux"}], actions=["update"])
     _check(cfg.checks_dir, "secure-boot", severity="none")
     _check(cfg.checks_dir, "reboot-needed", severity="medium")
     _script(cfg.actions_dir, "update.sh", "echo 'Updated 1 packages (repo) and 0 (AUR)'\n")
-    r = _cycle(env).run()
-    assert len(r.auto_run) == 1 and r.auto_run[0].ok
-    assert [f.id for f in r.findings].count("secure-boot") == 1
-    assert [f.id for f in r.findings].count("reboot-needed") == 1
+    cyc = _cycle(env)
+    r = cyc.run()
+    assert r.auto_run == [] and [p.action.id for p in r.pending] == ["update"]
+    res, extra = cyc.run_pending(r.pending[0])
+    assert res.ok
+    assert [f.id for f in extra] == ["secure-boot", "reboot-needed"] or sorted(f.id for f in extra) == ["reboot-needed", "secure-boot"]
     assert state.data["last_update_run"] == NOW.isoformat()
-    assert r.pending == []
 
 
 def test_cycle_post_hooks_run_even_when_action_fails(env):
     cfg, state = env
-    cfg.actions["update"] = "auto"
     _check(cfg.checks_dir, "arch-news", severity="none")
     _check(cfg.checks_dir, "updates", "high", items=[{"name": "linux"}], actions=["update"])
     _check(cfg.checks_dir, "secure-boot", severity="critical")
     _check(cfg.checks_dir, "reboot-needed", severity="none")
     _script(cfg.actions_dir, "update.sh", "echo 'Update failed: boom'\nexit 1\n")
-    r = _cycle(env).run()
-    assert r.auto_run[0].ok is False
-    assert any(f.id == "secure-boot" and f.severity == "critical" for f in r.findings)
-    assert any(f.id == "reboot-needed" for f in r.findings)
+    cyc = _cycle(env)
+    r = cyc.run()
+    res, extra = cyc.run_pending(r.pending[0])
+    assert res.ok is False
+    assert any(f.id == "secure-boot" and f.severity == "critical" for f in extra)
+    assert any(f.id == "reboot-needed" for f in extra)
 
 
 def test_cycle_auto_blocked_by_reason(env):

@@ -31,7 +31,7 @@ def test_example_config_matches_defaults():
     import tomllib
     from arch_assistant.config import DEFAULTS
     cfg = tomllib.loads((REPO / "assets" / "config.example.toml").read_text())
-    assert cfg["model"] == DEFAULTS["model"]
+    assert cfg["interval_hours"] == DEFAULTS["interval_hours"]
     assert set(cfg["thresholds"]) == set(DEFAULTS["thresholds"])
     assert cfg["critical_packages"] == DEFAULTS["critical_packages"]
 

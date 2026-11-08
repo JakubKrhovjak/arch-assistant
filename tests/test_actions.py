@@ -88,8 +88,10 @@ def test_effective_mode_defaults_to_ask(tmp_path):
 
 def test_effective_mode_reads_config(tmp_path):
     cfg = load_config(tmp_path, tmp_path)
+    cfg.actions["clean-pkg-cache"] = "auto"
+    assert A.effective_mode("clean-pkg-cache", cfg) == "auto"
     cfg.actions["update"] = "auto"
-    assert A.effective_mode("update", cfg) == "auto"
+    assert A.effective_mode("update", cfg) == "ask"
 
 
 def test_effective_mode_never_auto(tmp_path):

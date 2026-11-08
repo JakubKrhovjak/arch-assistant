@@ -13,7 +13,7 @@ from .checks import run_all
 from .config import Config, check_env
 from .model import Action, ActionResult, Finding, Summary
 from .state import State
-from .summarizer import summarize
+from .summarizer import template_summary
 
 
 @dataclass
@@ -48,10 +48,10 @@ def merge_findings(base: list[Finding], fresh: list[Finding]) -> list[Finding]:
 
 
 class Cycle:
-    def __init__(self, cfg: Config, state: State, log: logging.Logger, api_key: str | None,
+    def __init__(self, cfg: Config, state: State, log: logging.Logger,
                  running_vms: Callable[[], list[str] | None] = running_vms,
                  now: Callable[[], datetime] = datetime.now):
-        self.cfg, self.state, self.log, self.api_key = cfg, state, log, api_key
+        self.cfg, self.state, self.log = cfg, state, log
         self.running_vms, self.now = running_vms, now
         self._lock = threading.Lock()
         self.state.load()
@@ -101,8 +101,7 @@ class Cycle:
                 if f.id in new_ids:
                     result.new_pending.append(p)
         if new:
-            news_text = "; ".join(f.summary for f in findings if f.id == "arch-news" and not f.is_empty)
-            result.summary = summarize(new, news_text, self.cfg, self.api_key, self.log)
+            result.summary = template_summary(new)
             for f in new:
                 self.state.mark_reported(f, now)
         self.state.data["last_findings"] = [f.to_dict() for f in result.findings]
