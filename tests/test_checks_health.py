@@ -23,7 +23,7 @@ esac
 
 def test_failed_units_reports_failed_and_restarting(shim, check_runner):
     shim.cmd("systemctl", script=SYSTEMCTL_WITH_FAILURES)
-    f = check_runner.run("failed-units")
+    f = check_runner.run("failed-units", {"XDG_CURRENT_DESKTOP": "KDE"})
     assert f.severity == "high"
     by_name = {i["name"]: i for i in f.items}
     assert by_name["systemd-tpm2-setup-early.service"]["scope"] == "system"
@@ -127,5 +127,14 @@ def test_failed_units_ignores_app_launch_units(shim, check_runner):
     # Plasma wraps every launched app in a transient app-<id>@<random>.service / .scope; killing the app
     # leaves it "failed". That is the user's doing, not a broken service.
     shim.cmd("systemctl", script=SYSTEMCTL_APP_LAUNCH)
-    f = check_runner.run("failed-units")
+    f = check_runner.run("failed-units", {"XDG_CURRENT_DESKTOP": "KDE"})
     assert [i["name"] for i in f.items] == ["plasma-krunner.service"]
+
+
+def test_failed_units_ignores_plasma_units_outside_plasma(shim, check_runner):
+    # In another desktop the plasma-* user units fail on their own; restarting them would not help.
+    shim.cmd("systemctl", script=SYSTEMCTL_WITH_FAILURES)
+    f = check_runner.run("failed-units", {"XDG_CURRENT_DESKTOP": "Hyprland"})
+    names = [i["name"] for i in f.items]
+    assert "plasma-krunner.service" not in names
+    assert "kde-baloo.service" in names

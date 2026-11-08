@@ -7,9 +7,12 @@ RESTART_LIMIT=5
 failed_units() {   # $1 = "" | "--user"; prints "unit loadstate"
     # app-<id>@<random>.service / app-*.scope are transient wrappers Plasma creates for launched apps;
     # they end "failed" whenever the user kills the app, so they are not broken services.
+    # plasma-* units are started by a Plasma session and fail when another desktop is running, which breaks nothing.
+    local skip_plasma=1
+    [[ ":${XDG_CURRENT_DESKTOP:-}:" == *:KDE:* ]] && skip_plasma=0
     # shellcheck disable=SC2086
     systemctl $1 --failed --plain --no-legend 2>/dev/null \
-        | awk '$1 !~ /^app-.*@.*\.service$/ && $1 !~ /^app-.*\.scope$/ {print $1, $2}'
+        | awk -v skip_plasma="$skip_plasma" '$1 !~ /^app-.*@.*\.service$/ && $1 !~ /^app-.*\.scope$/ && !(skip_plasma && $1 ~ /^plasma-/) {print $1, $2}'
 }
 
 restarting_units() {   # $1 = "" | "--user"
