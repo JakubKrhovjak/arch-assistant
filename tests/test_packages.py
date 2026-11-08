@@ -340,6 +340,34 @@ def test_installed_tab_filters_and_uninstalls_after_confirmation(window):
     assert not tab.uninstall_button.isEnabled() and not tab.busy.isHidden()
 
 
+def test_installed_row_click_toggles_and_single_uninstall(qapp, window):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    tab = window.installed_tab
+    tab.set_inventory(_inventory())
+    window.show_tab("installed")
+    window.resize(1000, 600)
+    window.show()
+    qapp.processEvents()
+
+    def click(row_id, x):
+        item = next(i for i, r in tab.items if r.id == row_id)
+        rect = tab.tree.visualItemRect(item)
+        QTest.mouseClick(tab.tree.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                         QPoint(rect.left() + x, rect.center().y()))
+        qapp.processEvents()
+
+    click("ripgrep", 200)                                  # on the name, not the box
+    assert [r.id for r in tab.selected_rows()] == ["ripgrep"]
+    click("ripgrep", 200)
+    assert tab.selected_rows() == []
+    click("linux", 200)                                    # protected: stays unselected
+    assert tab.selected_rows() == []
+    rows = {r.id: r for _i, r in tab.items}
+    tab.uninstall([rows["linux"], rows["localsend-bin"]])  # the context menu path; protected rows are dropped
+    assert window.calls["uninstall"] == [("pkg:localsend-bin",)]
+
+
 def _found(term="vlc"):
     return K.SearchResult(term, [K.Result("vlc", "vlc", "3.0.24-1", "Player", "repo", True, "extra"),
                                  K.Result("VLC", "org.videolan.VLC", "3.0.24", "Player", "flatpak", False, "flathub"),

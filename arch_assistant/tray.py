@@ -355,7 +355,27 @@ def make_tree(columns: Iterable[str]) -> QTreeWidget:
     header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
     for col in range(1, len(columns)):
         header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+    toggle_on_row_click(tree)
     return tree
+
+
+def toggle_on_row_click(tree: QTreeWidget) -> None:
+    """A click anywhere on a checkable row toggles its box, not only on the small box itself. The state is
+    remembered on press: when Qt already toggled it (the click hit the box), the row is left alone."""
+    pressed: dict[str, object] = {}
+
+    def on_pressed(item: QTreeWidgetItem, _column: int) -> None:
+        pressed["item"], pressed["state"] = item, item.checkState(0)
+
+    def on_clicked(item: QTreeWidgetItem, _column: int) -> None:
+        checkable = bool(item.flags() & Qt.ItemFlag.ItemIsUserCheckable and item.flags() & Qt.ItemFlag.ItemIsEnabled)
+        if not checkable or pressed.get("item") is not item or item.checkState(0) != pressed.get("state"):
+            return
+        checked = item.checkState(0) == Qt.CheckState.Checked
+        item.setCheckState(0, Qt.CheckState.Unchecked if checked else Qt.CheckState.Checked)
+
+    tree.itemPressed.connect(on_pressed)
+    tree.itemClicked.connect(on_clicked)
 
 
 def make_busy() -> QProgressBar:
@@ -672,8 +692,11 @@ class InstalledTab(PackagesTab):
         self.tree.setItemsExpandable(False)
         self.tree.setIndentation(0)
         self.tree.itemChanged.connect(self._item_changed)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._context_menu)
         self.layout_.addWidget(self.tree, 1)
-        self.note = dim_label("Only explicitly installed packages are listed, not their dependencies. "
+        self.note = dim_label("Click a row to select it, right-click to uninstall a single package. "
+                              "Only explicitly installed packages are listed, not their dependencies. "
                               "System packages are protected and cannot be uninstalled here.")
         self.layout_.addWidget(self.note)
 
@@ -779,9 +802,29 @@ class InstalledTab(PackagesTab):
         self.uninstall_button.setEnabled(n > 0 and not self.running)
 
     def _uninstall_clicked(self) -> None:
-        rows = self.selected_rows()
+        self.uninstall(self.selected_rows())
+
+    def uninstall(self, rows: list[Installed]) -> None:
+        """Confirm, then hand the packages to the action; protected rows never get here."""
+        rows = [r for r in rows if not r.protected]
         if rows and not self.running and self.confirm(rows):
             self.on_uninstall(tuple(r.uninstall_arg for r in rows))
+
+    def row_at(self, pos) -> Installed | None:
+        item = self.tree.itemAt(pos)
+        return next((r for i, r in self.items if i is item), None)
+
+    def _context_menu(self, pos) -> None:
+        r = self.row_at(pos)
+        if r is None:
+            return
+        menu = QMenu(self.tree)
+        act = menu.addAction(QIcon.fromTheme("edit-delete"), f"Uninstall {r.name}…")
+        act.setEnabled(not r.protected and not self.running)
+        if r.protected:
+            act.setToolTip(PROTECTED_REASON)
+        act.triggered.connect(lambda _c=False, r=r: self.uninstall([r]))
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     # --- filter ------------------------------------------------------------------
 
