@@ -3,8 +3,6 @@ import os
 import stat
 import time
 
-SUDO = 'cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n'
-
 
 def test_resource_hogs_reports_cpu_hog_and_updates_baseline(shim, check_runner):
     shim.cmd("ps", "  1 baloo_file_ext 95.0 200000 900\n  2 idle_proc 0.5 1000 900\n")
@@ -71,19 +69,23 @@ def test_unused_apps_by_atime_and_recently_used(shim, check_runner, tmp_path):
         '</bookmark:applications></metadata></info></bookmark></xbel>')
     dep_bin = _bin(tmp_path / "bin2", "depapp", 200)
     _desktop(apps, "depapp", str(dep_bin), "Dep App")
+    for name in ("oldaur", "arch-audit"):
+        _desktop(apps, name, str(_bin(tmp_path / "bin2", name, 250)), name)
     shim.cmd("pacman", script=r'''
 case "$1" in
-  -Qqe) printf 'oldapp\nfreshapp\nrecentapp\nplasma-desktop\ndepapp\n' ;;
+  -Qqe) printf 'oldapp\nfreshapp\nrecentapp\nplasma-desktop\ndepapp\noldaur\narch-audit\n' ;;
+  -Qqm) echo oldaur ;;
   -Ql) echo "$2 ''' + str(apps) + r'''/$2.desktop" ;;
   -Qi) if [[ "$2" == "depapp" ]]; then echo "Required By     : cups  pipewire-pulse"; else echo "Required By     : None"; fi ;;
 esac
 ''')
     f = check_runner.run("unused-apps", {"AA_UNUSED_DAYS": "90", "AA_HOME": str(home)})
     assert f.severity == "low"
-    # depapp is as old as oldapp but other packages depend on it: never offered for removal
-    assert [i["name"] for i in f.items] == ["oldapp"]
-    assert f.items[0]["app"] == "Old App" and f.items[0]["last_used"] <= time.strftime("%Y-%m-%d", time.localtime(time.time() - 199 * 86400))
-    assert [(a.id, a.args) for a in f.actions] == [("remove-package", ("oldapp",))]
+    # depapp is as old as oldapp but other packages depend on it, arch-audit is what Arch Assistant needs and
+    # plasma-desktop is protected: none of them is offered for removal
+    assert [i["name"] for i in f.items] == ["oldaur", "oldapp"]
+    assert f.items[1]["app"] == "Old App" and f.items[1]["last_used"] <= time.strftime("%Y-%m-%d", time.localtime(time.time() - 199 * 86400))
+    assert [(a.id, a.args) for a in f.actions] == [("uninstall", ("aur:oldaur",)), ("uninstall", ("repo:oldapp",))]
     assert not any("plasma-desktop" in c and "-Ql" in c for c in shim.calls())
 
 
@@ -110,7 +112,7 @@ def test_docker_vm_reports_images_and_orphan_overlay(shim, check_runner, tmp_pat
     vm.mkdir()
     for n in ("a.qcow2", "b.qcow2", "c.qcow2"):
         (vm / n).write_bytes(b"x" * 2048)
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("docker", script=f'if [[ "$1" == "info" ]]; then exit 0; fi\nprintf %s \'{DOCKER_DF}\'\n')
     shim.cmd("virsh", script=f'''
 case "$*" in
@@ -134,5 +136,5 @@ def test_docker_vm_none(shim, check_runner, tmp_path):
     vm.mkdir()
     shim.cmd("docker", script='if [[ "$1" == "info" ]]; then exit 1; fi\n')
     shim.cmd("virsh", "")
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     assert check_runner.run("docker-vm", {"AA_VM_DIR": str(vm)}).severity == "none"

@@ -96,12 +96,12 @@ def test_effective_mode_reads_config(tmp_path):
 
 def test_effective_mode_never_auto(tmp_path):
     cfg = load_config(tmp_path, tmp_path)
-    cfg.actions["remove-package"] = "auto"
+    cfg.actions["remove-driver-packages"] = "auto"
     cfg.actions["pacdiff"] = "auto"
-    assert A.effective_mode("remove-package", cfg) == "ask"
+    assert A.effective_mode("remove-driver-packages", cfg) == "ask"
     assert A.effective_mode("pacdiff", cfg) == "ask"
-    cfg.actions["remove-package"] = "never"
-    assert A.effective_mode("remove-package", cfg) == "never"
+    cfg.actions["remove-driver-packages"] = "never"
+    assert A.effective_mode("remove-driver-packages", cfg) == "never"
 
 
 def test_running_vms_failure_is_unknown(shim):

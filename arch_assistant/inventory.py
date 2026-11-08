@@ -1,35 +1,22 @@
 """What is installed: explicit Arch packages, AUR packages and Flatpak apps, grouped for the Installed tab. No Qt here.
 
 Apps ship a visible .desktop application (Flatpak apps always do), System packages are the base system, kernel,
-firmware, drivers and desktop core (protected: the window never offers to uninstall them), everything else is a
-Utility (CLI tools, libraries, fonts and the like).
+firmware, drivers and desktop core (protected, see protection.py: the window never offers to uninstall them),
+everything else is a Utility (CLI tools, libraries, fonts and the like).
 """
 from __future__ import annotations
 
 import re
-import subprocess
 from dataclasses import dataclass, field
-from fnmatch import fnmatch
 from pathlib import Path
 
-APPLICATIONS_DIR = "/usr/share/applications/"
-COMMAND_TIMEOUT = 60
-CATEGORIES = ("apps", "utilities", "system")
+from .packages import package_arg, run_readonly
+from .protection import is_system, read_group_members
 
-# Packages whose removal can leave the machine unbootable or without a desktop (fnmatch patterns)
-SYSTEM_PATTERNS = (
-    "base", "base-devel", "linux", "linux-*", "*-firmware", "*-firmware-*", "*-ucode", "*-dkms", "*-dkms-*",
-    "mesa", "lib32-mesa", "vulkan-*", "lib32-vulkan-*", "xf86-*", "xorg-server", "xorg-xwayland",
-    "systemd", "systemd-*", "glibc", "glibc-*", "bash", "sudo", "pacman", "archlinux-keyring", "mkinitcpio",
-    "grub", "efibootmgr", "sbctl", "refind", "cryptsetup", "lvm2", "device-mapper", "mdadm", "btrfs-progs",
-    "e2fsprogs", "dosfstools", "sddm", "sddm-kcm", "plasma-meta", "plasma-desktop", "plasma-workspace", "kwin",
-    "networkmanager", "wpa_supplicant", "iwd", "pipewire", "pipewire-*", "wireplumber",
-    "xdg-desktop-portal", "xdg-desktop-portal-*", "yay", "yay-bin", "paru", "paru-bin",
-)
-# Every member of these package groups counts as System as well
-SYSTEM_GROUPS = ("plasma", "kf6", "qt6", "xorg-drivers")
-PROTECTED_REASON = ("Protected: part of the base system, kernel, firmware, drivers or desktop core. "
-                    "Removing it can break booting or the desktop; use a terminal if you really mean it.")
+APPLICATIONS_DIR = "/usr/share/applications/"
+# Categories in display order, with the label the window shows for each
+CATEGORY_LABELS = {"apps": "Apps", "utilities": "Utilities", "system": "System"}
+CATEGORIES = tuple(CATEGORY_LABELS)
 
 
 @dataclass(frozen=True)
@@ -51,24 +38,15 @@ class Installed:
         return self.category == "system"
 
     @property
-    def uninstall_arg(self) -> str:
+    def arg(self) -> str:
         """Argument of actions/uninstall.sh."""
-        return f"flatpak:{self.id}" if self.source == "flatpak" else f"pkg:{self.id}"
+        return package_arg(self.source, self.id)
 
 
 @dataclass
 class Inventory:
     rows: list[Installed] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)   # sources that could not be read
-
-
-def _run(cmd: list[str], codes: tuple[int, ...] = (0,)) -> str | None:
-    """stdout of a read-only command; None when it is missing or fails."""
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=COMMAND_TIMEOUT, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return proc.stdout if proc.returncode in codes else None
 
 
 def _name_versions(text: str) -> dict[str, str]:
@@ -130,27 +108,17 @@ def best_entry(pkg: str, paths: list[str], read=_read) -> dict[str, str] | None:
     return best if related(best) or len(entries) == 1 else dict(best, name=pkg)
 
 
-def _groups(text: str) -> set[str]:
-    """`pacman -Qg` output ("group package" lines): the packages of the System groups."""
-    pairs = (line.split() for line in text.splitlines())
-    return {p[1] for p in pairs if len(p) == 2 and p[0] in SYSTEM_GROUPS}
-
-
-def is_system(pkg: str, group_members: set[str]) -> bool:
-    return pkg in group_members or any(fnmatch(pkg, p) for p in SYSTEM_PATTERNS)
-
-
 def _packages(inv: Inventory, read) -> None:
     # pacman -Qm exits 1 when there are no foreign packages at all
-    explicit, foreign = _run(["pacman", "-Qe"]), _run(["pacman", "-Qm"], codes=(0, 1))
+    explicit, foreign = run_readonly(["pacman", "-Qe"]), run_readonly(["pacman", "-Qm"], codes=(0, 1))
     if explicit is None or foreign is None:
         inv.errors.append("pacman")
         return
     aur = _name_versions(foreign)
     repo = {k: v for k, v in _name_versions(explicit).items() if k not in aur}
     names = sorted({*repo, *aur})
-    files = _desktop_files(_run(["pacman", "-Ql", *names]) or "") if names else {}
-    members = _groups(_run(["pacman", "-Qg"]) or "")
+    files = _desktop_files(run_readonly(["pacman", "-Ql", *names]) or "") if names else {}
+    members = read_group_members()
     for source, pkgs in (("repo", repo), ("aur", aur)):
         for pkg, version in pkgs.items():
             entry = best_entry(pkg, files.get(pkg, []), read)
@@ -159,17 +127,18 @@ def _packages(inv: Inventory, read) -> None:
                                       entry["icon"] if entry else ""))
 
 
-def _flatpaks(inv: Inventory) -> None:
-    text = _run(["flatpak", "list", "--app", "--columns=application,name,version,installation"])
-    if text is None:
-        return   # no flatpak or no remotes: nothing to list, not an error worth showing
+def flatpak_apps() -> list[Installed]:
+    """Installed Flatpak apps; none when flatpak is missing or has no remotes (not an error worth showing)."""
+    text = run_readonly(["flatpak", "list", "--app", "--columns=application,name,version,installation"]) or ""
+    rows = []
     for line in text.splitlines():
         cols = line.split("\t")
         if not cols[0].strip():
             continue
-        app_id, name, version, installation = (cols + ["", "", ""])[:4]
-        inv.rows.append(Installed(name.strip() or app_id, app_id.strip(), version.strip(), "flatpak", "apps",
-                                  app_id.strip(), installation.strip() or "system"))
+        app_id, name, version, installation = [*cols, "", "", ""][:4]
+        rows.append(Installed(name.strip() or app_id, app_id.strip(), version.strip(), "flatpak", "apps",
+                              app_id.strip(), installation.strip() or "system"))
+    return rows
 
 
 def sort_key(row: Installed) -> tuple:
@@ -180,6 +149,6 @@ def collect(read=_read) -> Inventory:
     """Everything installed, sorted by category then name. Runs pacman and flatpak: call it off the GUI thread."""
     inv = Inventory()
     _packages(inv, read)
-    _flatpaks(inv)
+    inv.rows += flatpak_apps()
     inv.rows.sort(key=sort_key)
     return inv

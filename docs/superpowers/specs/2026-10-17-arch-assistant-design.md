@@ -94,7 +94,7 @@ Každá kontrola je skript. Sloupec „Akce“ uvádí, co nabídne; „jen hlá
 | `orphans` | Osiřelé balíčky | `pacman -Qdtq` | nízká | `remove-orphans` |
 | `jetbrains-old` | Staré verze IDE v `~/.config/JetBrains`, `~/.local/share/JetBrains`, `~/.cache/JetBrains` (každá řada má novější verzi), plus staré buildy v Toolboxu | adresáře podle vzoru `<IDE><rok.verze>`, `~/.local/share/JetBrains/Toolbox/apps` | nízká | `clean-jetbrains-old` (jen verze, ke kterým existuje novější, nikdy aktuální) |
 | `user-cache` | Položky v `~/.cache` nad prahem (výchozí 1 GB) | `du -d1` | nízká | `clean-user-cache <název>` (jen vyjmenované bezpečné: prohlížeče, yay, pip, npm, go build; ostatní jen hlásit) |
-| `unused-apps` | Balíčky s `.desktop` položkou, které nebyly spuštěny 90+ dní | historie z `~/.local/share/user-places.xbel` a `recently-used.xbel`, atime binárek | nízká | jen hlásit s názvem balíčku; odinstalace po kliknutí (`remove-package`) |
+| `unused-apps` | Balíčky s `.desktop` položkou, které nebyly spuštěny 90+ dní | historie z `~/.local/share/user-places.xbel` a `recently-used.xbel`, atime binárek | nízká | jen hlásit s názvem balíčku; odinstalace po kliknutí (`uninstall`, dřív `remove-package`, viz poznámka u akcí) |
 | `docker-vm` | Nepoužívané Docker image a volumes, osiřelé overlay soubory VM v `/mnt/data/vm` (nejsou v řetězu žádného domainu) | `docker system df`, `virsh domblklist`, `qemu-img info --backing-chain` | nízká | **jen hlásit**, nikdy nemazat (anti-cíl) |
 
 Kontroly běží paralelně s timeoutem 60 s na každou. Kontrola, která spadne, se hlásí jako „kontrola selhala“ s nízkou závažností, neblokuje ostatní.
@@ -118,7 +118,9 @@ Prázdný nález = `severity: "none"`. Návratový kód 0 i při nálezu; nenulo
 
 **Akce** (`actions/<id>.sh`): argumenty z `args`, běží jako uživatel, root si bere přes `sudo` jen na vyjmenované příkazy. Tiskne krátký lidský výsledek na stdout (1 až 3 řádky, jde do popupu), detail na stderr (jde do logu). Návratový kód 0 = úspěch. Timeout 30 minut (aktualizace), jinak 5 minut.
 
-**Výchozí režimy akcí** (`config.toml`, `[actions]`): `update = "ask"`, `restart-unit = "ask"`, `clean-coredumps = "ask"`, `clean-pkg-cache = "ask"`, `remove-orphans = "ask"`, `clean-jetbrains-old = "ask"`, `clean-user-cache = "ask"`, `refresh-mirrors = "ask"`, `remove-package = "ask"`. Hodnoty: `ask` / `auto` / `never`. Tlačítko „Ano, příště automaticky“ zapíše `auto`.
+> **Poznámka (2026-11-08):** akci `remove-package` nahradila `uninstall` (`actions/uninstall.sh`), společná pro záložku Installed i pro `unused-apps`. Bere argumenty `repo:<balíček>`, `aur:<balíček>` a `flatpak:<id>` (formát `parse_args` v `actions/_lib.sh`, staví je `package_arg` v `arch_assistant/packages.py`). Před `pacman -Rns` běží guard (`guard_removal`, v okně `arch_assistant/protection.py`): odmítne odinstalaci, jejíž skutečná množina balíčků (`pacman -Rs --print`) zasáhne chráněný balíček (`assets/protected.txt`), login shell nebo závislost Arch Assistanta (`assets/dependencies.txt`). Aktuální stav popisuje README.
+
+**Výchozí režimy akcí** (`config.toml`, `[actions]`): `update = "ask"`, `restart-unit = "ask"`, `clean-coredumps = "ask"`, `clean-pkg-cache = "ask"`, `remove-orphans = "ask"`, `clean-jetbrains-old = "ask"`, `clean-user-cache = "ask"`, `refresh-mirrors = "ask"`, `uninstall = "ask"` (dřív `remove-package`). Hodnoty: `ask` / `auto` / `never`. Tlačítko „Ano, příště automaticky“ zapíše `auto`.
 
 ## 8. Co běží pod rootem
 
@@ -142,7 +144,7 @@ AUR aktualizace běží jako uživatel (`yay -Sua --noconfirm`), yay si interně
 ## 10. Bezpečnost
 
 - Vše, co maže, maže jen to, co kontrola vyjmenovala; akce dostane konkrétní argumenty, nehledá znovu sama.
-- Nikdy automaticky: `remove-package`, cokoli v `docker-vm`, system jednotky, `pacdiff`.
+- Nikdy automaticky: `uninstall` (dřív `remove-package`), cokoli v `docker-vm`, system jednotky, `pacdiff`.
 - `arch-news` s „manual intervention“ pro čekající balíček přepne `update` na dotaz, i když je `auto`.
 - Režim `auto` u `update` platí i pro jádro, systemd a Plasmu (po jádře následuje kontrola `secure-boot`). **Výjimka: `qemu*` / `libvirt` v dávce, když běží nějaká VM (`virsh list --state-running`), vynutí dotaz.** Schváleno s návrhem 2026-10-17.
 - Klíč API se čte ze `secrets.zsh` (§ 5), do konfigurace ani logu se neukládá. Do Claude se nikdy neposílají cesty v `/home` mimo názvy adresářů IDE, ani obsah souborů.

@@ -1,38 +1,26 @@
 #!/bin/bash
 # Action: system update (repo via pacman, then AUR via yay, then Flatpak apps and runtimes).
-# Args: none = update everything. Otherwise any of
-#   repo            all repo packages (pacman -Syu; partial repo upgrades are unsupported on Arch)
+# Args: none = update everything. Otherwise any of (the format of actions/_lib.sh parse_args)
+#   repo:<name>     any repo package means all of them (pacman -Syu; partial repo upgrades are unsupported on Arch)
 #   aur:<name>      this AUR package (repeatable)
 #   flatpak:<id>    this Flatpak (repeatable)
+# Flatpaks of the system installation are updated via sudo, those of the user installation as the user.
 # stdout: "Updated N packages (repo), M (AUR) and K Flatpaks" [+ "New .pacnew files: K"], or "Update failed: <reason>".
 # stderr: full pacman/yay output. Exit 1 if pacman fails (yay is skipped then), 2 on a bad argument.
 # Env: AA_PACMAN_LOG (default /var/log/pacman.log), AA_UPDATE_SINCE (ISO timestamp, default now).
 set -uo pipefail
+# shellcheck source-path=SCRIPTDIR source=_lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
 pacman_log="${AA_PACMAN_LOG:-/var/log/pacman.log}"
 since="${AA_UPDATE_SINCE:-$(date +%Y-%m-%dT%H:%M:%S)}"
 
+parse_args "Update" "" "$@"
 selective=0
 want_repo=1
-aur_names=()
-flatpak_ids=()
 if [[ $# -gt 0 ]]; then
     selective=1
-    want_repo=0
-    for arg in "$@"; do
-        name="${arg#*:}"
-        # package names and Flatpak ids only: nothing that pacman, yay or flatpak could read as an option
-        if [[ "$arg" == *:* && ! "$name" =~ ^[A-Za-z0-9@_+][A-Za-z0-9@._+-]*$ ]]; then
-            echo "Update failed: invalid package name in argument $arg"
-            exit 2
-        fi
-        case "$arg" in
-            repo) want_repo=1 ;;
-            aur:*) aur_names+=("$name") ;;
-            flatpak:*) flatpak_ids+=("$name") ;;
-            *) echo "Update failed: unknown argument $arg"; exit 2 ;;
-        esac
-    done
+    want_repo=$(( ${#repo_names[@]} > 0 ))
 fi
 
 repo_count=0
@@ -64,17 +52,8 @@ if [[ ${#flatpak_ids[@]} -gt 0 && $have_flatpak -eq 0 ]]; then
     exit 1
 fi
 
-err_file=$(mktemp)
-trap 'rm -f "$err_file"' EXIT
-
 if [[ $want_repo -eq 1 ]]; then
-    if ! sudo /usr/bin/pacman -Syu --noconfirm 2>"$err_file" 1>&2; then
-        cat "$err_file" >&2
-        reason=$(grep -m1 -i "error" "$err_file" || head -n1 "$err_file")
-        echo "Update failed: ${reason:-pacman exited with an error}"
-        exit 1
-    fi
-    cat "$err_file" >&2
+    run_step "Update failed: " "pacman exited with an error" sudo /usr/bin/pacman -Syu --noconfirm
 fi
 
 aur_cmd=()
@@ -84,22 +63,12 @@ elif [[ ${#aur_names[@]} -gt 0 ]]; then
     aur_cmd=(yay -S --aur --noconfirm "${aur_names[@]}")
 fi
 if [[ ${#aur_cmd[@]} -gt 0 ]]; then
-    if ! "${aur_cmd[@]}" 1>&2 2>"$err_file"; then
-        cat "$err_file" >&2
-        reason=$(grep -m1 -i "error" "$err_file" || head -n1 "$err_file")
-        echo "Updated $repo_count packages (repo); AUR update failed: ${reason:-yay exited with an error}"
-        exit 1
-    fi
+    run_step "Updated $repo_count packages (repo); AUR update failed: " "yay exited with an error" "${aur_cmd[@]}"
 fi
 
 if [[ $have_flatpak -eq 1 && "$flatpak_count" -gt 0 ]]; then
-    # system-wide Flatpaks: sudo instead of a polkit prompt that cannot be answered in the background
-    if ! sudo /usr/bin/flatpak update -y --noninteractive "${flatpak_ids[@]}" 1>&2 2>"$err_file"; then
-        cat "$err_file" >&2
-        reason=$(grep -m1 -i "error" "$err_file" || head -n1 "$err_file")
-        echo "Updated $repo_count packages (repo), $aur_count (AUR); Flatpak update failed: ${reason:-flatpak exited with an error}"
-        exit 1
-    fi
+    flatpak_per_installation "Updated $repo_count packages (repo), $aur_count (AUR); Flatpak update failed: " \
+        update -y --noninteractive -- "${flatpak_ids[@]}"
 fi
 
 echo "Updated $repo_count packages (repo), $aur_count (AUR) and $flatpak_count Flatpaks"

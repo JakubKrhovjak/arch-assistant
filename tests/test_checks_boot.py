@@ -1,7 +1,6 @@
 import json
 import time
 
-SUDO = 'cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n'
 SBCTL_OK = "Verifying file database and EFI images in /boot/efi...\n✓ /boot/efi/EFI/Linux/arch-linux.efi is signed\n✓ /boot/efi/EFI/Linux/arch-linux-lts.efi is signed\n"
 SBCTL_BAD = "Verifying file database and EFI images in /boot/efi...\n✗ /boot/efi/EFI/Linux/arch-linux.efi is not signed\n✓ /boot/efi/EFI/Linux/arch-linux-lts.efi is signed\n"
 
@@ -15,7 +14,7 @@ def _esp(tmp_path, with_uki=True):
 
 
 def test_secure_boot_unsigned_is_critical(shim, check_runner, tmp_path):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("sbctl", SBCTL_BAD)
     esp = _esp(tmp_path)
     f = check_runner.run("secure-boot", {"AA_ESP": str(esp)})
@@ -26,7 +25,7 @@ def test_secure_boot_unsigned_is_critical(shim, check_runner, tmp_path):
 
 
 def test_secure_boot_missing_uki_is_critical(shim, check_runner, tmp_path):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("sbctl", SBCTL_OK)
     esp = _esp(tmp_path, with_uki=False)
     f = check_runner.run("secure-boot", {"AA_ESP": str(esp)})
@@ -34,7 +33,7 @@ def test_secure_boot_missing_uki_is_critical(shim, check_runner, tmp_path):
 
 
 def test_secure_boot_ok_after_update_is_reported_once(shim, check_runner, tmp_path):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("sbctl", SBCTL_OK)
     esp = _esp(tmp_path)
     (check_runner.state_dir / "state.json").write_text(json.dumps({"last_update_run": "2026-10-17T10:00:00"}))
@@ -45,7 +44,7 @@ def test_secure_boot_ok_after_update_is_reported_once(shim, check_runner, tmp_pa
 
 
 def test_secure_boot_quiet_without_update(shim, check_runner, tmp_path):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("sbctl", SBCTL_OK)
     f = check_runner.run("secure-boot", {"AA_ESP": str(_esp(tmp_path))})
     assert f.severity == "none"
@@ -90,7 +89,7 @@ def test_reboot_needed_systemd_updated_after_boot(shim, check_runner, monkeypatc
 
 
 def test_pacnew_lists_files(shim, check_runner):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("pacdiff", "/etc/pacman.conf.pacnew\n/etc/makepkg.conf.d/fortran.conf.pacnew\n")
     f = check_runner.run("pacnew")
     assert f.severity == "medium" and len(f.items) == 2
@@ -99,7 +98,7 @@ def test_pacnew_lists_files(shim, check_runner):
 
 
 def test_pacnew_none(shim, check_runner):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("pacdiff", "")
     assert check_runner.run("pacnew").severity == "none"
 
@@ -161,20 +160,20 @@ TIMESHIFT = "Device : /dev/dm-0\nMode   : BTRFS\nStatus : OK\n16 snapshots, 176.
 
 
 def test_timeshift_recent_snapshot(shim, check_runner):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("timeshift", TIMESHIFT.format(latest=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time() - 3600))))
     assert check_runner.run("timeshift").severity == "none"
 
 
 def test_timeshift_old_snapshot(shim, check_runner):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("timeshift", TIMESHIFT.format(latest="2026-10-10_04-06-21"))
     f = check_runner.run("timeshift")
     assert f.severity == "medium" and f.items[0]["name"] == "2026-10-10_04-06-21" and f.items[0]["age_days"] >= 2
 
 
 def test_timeshift_no_snapshots(shim, check_runner):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("timeshift", "Status : OK\n0 snapshots\n")
     f = check_runner.run("timeshift")
     assert f.severity == "medium" and f.title == "No Timeshift snapshots"

@@ -6,7 +6,6 @@ from arch_assistant.model import Action
 
 ACTIONS = Path(__file__).resolve().parent.parent / "actions"
 LOG = logging.getLogger("test")
-SUDO = 'cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n'
 
 INTEL = "00:02.0 VGA compatible controller [0300]: Intel Corporation Iris Xe [8086:9a49]\n"
 AMD = "06:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Phoenix [1002:15bf]\n"
@@ -59,7 +58,7 @@ def test_unreadable_lspci_flags_nothing(shim, check_runner):
 
 
 def test_action_runs_pacman_for_flagged_and_refuses_others(shim):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("lspci", AMD + INTEL_WIFI)
     shim.cmd("pacman", "vulkan-intel\nlinux-firmware-intel\nmesa\n")
     r = run_action(ACTIONS, Action("remove-driver-packages", "x", ("vulkan-intel",)), LOG)

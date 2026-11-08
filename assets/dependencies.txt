@@ -1,0 +1,9 @@
+# Arch packages Arch Assistant itself needs at runtime, one per line. install.sh installs them and marks them as
+# explicitly installed (so `pacman -Rns` of another package cannot take them along as an orphan); the uninstall
+# guard (arch_assistant/protection.py, actions/_lib.sh) refuses any removal that would reach them.
+python
+pyside6
+python-jeepney
+pacman-contrib
+arch-audit
+ghostty          # the terminal the long actions run in (arch_assistant/actions.py TERMINAL)

@@ -37,7 +37,7 @@ Clicking **No** snoozes that finding for `snooze_days` (default 7): no notificat
 
 Action modes are in `~/.config/arch-assistant/actions.toml` as `id = "ask" | "auto" | "never"`;
 the tray writes `auto` when you click "Yes, automatically next time". `update`, `install`, `uninstall`,
-`remove-package`, `remove-driver-packages` and `pacdiff` never run unattended, nor does `restart-unit` for system units.
+`remove-driver-packages` and `pacdiff` never run unattended, nor does `restart-unit` for system units.
 
 ### Packages window
 
@@ -53,9 +53,12 @@ pending actions open it on **Updates**):
 - **Installed** – explicitly installed Arch packages (`pacman -Qe` minus foreign), AUR packages (`pacman -Qm`) and
   Flatpak apps, grouped into **Apps** (a visible `.desktop` application; Flatpaks always), **Utilities** (CLI tools,
   libraries, fonts…) and **System** (base, kernels, firmware, microcode, drivers, Mesa/Vulkan, systemd, boot and disk
-  tools, SDDM, PipeWire, NetworkManager, the `plasma`/`kf6`/`qt6`/`xorg-drivers` groups; see
-  `arch_assistant/inventory.py`). System rows are protected and cannot be checked. Checked rows are removed by
-  `uninstall` (`pacman -Rns`, `flatpak uninstall`) after a confirmation listing them.
+  tools, SDDM, PipeWire, NetworkManager, the `plasma`/`kf6`/`qt6`/`xorg-drivers` groups; the one list is `assets/protected.txt`). System rows are
+  protected and cannot be checked. Checked rows are removed by `uninstall` (`pacman -Rns`, `flatpak uninstall`)
+  after a confirmation that lists the full removal set: `pacman -Rs --print` (read-only) adds every dependency
+  nothing else needs, marked as such. A removal whose set reaches a protected package, the login shell of the user
+  or root, or a package Arch Assistant needs (`assets/dependencies.txt`, Ghostty included) is refused with the reason, both in the
+  window and again in the action (`guard_removal` in `actions/_lib.sh`).
 - **Browse** – one search (debounced, at least 2 characters, Enter searches at once) over the Arch repos
   (`pacman -Ss`), the AUR (RPC v5, needs the network) and Flathub (`flatpak search`), sorted by relevance (exact name,
   then name containing the term; AUR by popularity). Installed results are marked and cannot be picked; checked ones
@@ -65,7 +68,7 @@ pending actions open it on **Updates**):
 
 | Check | Action |
 |---|---|
-| `updates`, `arch-news` | `update [repo] [aur:<name>…] [flatpak:<id>…]` (no args: pacman -Syu, yay -Sua, flatpak update; then `secure-boot` and `reboot-needed` run) |
+| `updates`, `arch-news` | `update [repo:<name>…] [aur:<name>…] [flatpak:<id>…]` (no args: pacman -Syu, yay -Sua, flatpak update; any `repo:` arg upgrades every repo package; system Flatpaks via sudo, user ones as the user; then `secure-boot` and `reboot-needed` run) |
 | `failed-units` | `restart-unit <system\|user> <unit>` |
 | `coredumps` | `clean-coredumps` |
 | `pacnew` | `pacdiff` (opens a terminal) |
@@ -76,16 +79,18 @@ pending actions open it on **Updates**):
 | `localsend` | `restart-localsend` (reset-failed + restart of the `localsend.service` user unit; nothing reported when the unit is not installed) |
 | `toolbox-cache` | `clean-toolbox-cache` (`~/.cache/JetBrains/Toolbox/temp` and `download`) |
 | `user-cache` | `clean-user-cache <name …>` (safe list only; safe caches are also offered when together above the limit) |
-| `unused-apps` | `remove-package <pkg>` |
-| (Installed tab) | `uninstall pkg:<name>… flatpak:<id>…` (pacman -Rns; system Flatpaks via sudo, user ones as the user) |
-| (Browse tab) | `install repo:<name>… aur:<name>… flatpak:<id>…` (pacman -S --needed, yay -S --aur --needed, flatpak install from Flathub system-wide) |
+| `unused-apps`, (Installed tab) | `uninstall repo:<name>… aur:<name>… flatpak:<id>…` (removal set confirmed and guarded first, then pacman -Rns; system Flatpaks via sudo, user ones as the user) |
+| (Browse tab) | `install repo:<name>… aur:<name>… flatpak:<id>…` (pacman -S --needed, yay -S --aur --needed, flatpak install from Flathub system-wide; then `secure-boot` and `reboot-needed` run) |
 | `hardware-drivers` | `remove-driver-packages <pkg …>` (GPU / Wi-Fi drivers for absent hardware) |
 | `disk-space`, `journal-errors`, `reboot-needed`, `secure-boot`, `timeshift`, `clocksource`, `vuln-packages`, `resource-hogs`, `docker-vm` | report only |
 
 A check is a script in `checks/` that prints one JSON object (`id`, `severity`, `title`, `summary`,
 `items`, `actions`), reads thresholds from `AA_*` environment variables and exits non-zero only when
 it crashed. An action is a script in `actions/` that gets the action's args, prints a short result on
-stdout (first lines go to the popup) and details on stderr (log).
+stdout (first lines go to the popup) and details on stderr (log). The package actions share
+`actions/_lib.sh`: one argument format (`<source>:<name>`, built by `package_arg` in `arch_assistant/packages.py`),
+the run-and-report step, the per-installation Flatpak runner and the uninstall guard. The parser of the
+`assets/*.txt` lists is `actions/_lists.sh`, sourced by `_lib.sh` and `install.sh`.
 
 Long actions started by a click (`TERMINAL_ACTIONS` in `arch_assistant/actions.py`) run in a Ghostty
 window titled "Arch Assistant: <action>": the stderr output (pacman, yay, flatpak) is shown live, the

@@ -4,10 +4,11 @@ import logging
 import os
 import stat
 import threading
-import time
 from datetime import datetime, timedelta
 
 import pytest
+
+from helpers import close_tray, make_tray, wait_until
 
 from arch_assistant import actions as A
 from arch_assistant import cycle as C
@@ -188,65 +189,25 @@ def test_running_vms_returns_none_on_failure(shim):
 # --- tray: worker exceptions, pending replacement, dialog, icon ------------------------------
 
 @pytest.fixture
-def qapp():
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtWidgets import QApplication
-    return QApplication.instance() or QApplication([])
-
-
-class FakeTransport:
-    def __init__(self):
-        self.calls = []
-
-    def notify(self, *args):
-        self.calls.append(args)
-        return len(self.calls)
-
-    def listen(self, on_action, on_closed):
-        pass
-
-
-def _wait(qapp, cond, timeout=5.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        qapp.processEvents()
-        if cond():
-            return True
-        time.sleep(0.02)
-    return False
-
-
-@pytest.fixture
 def tray_factory(qapp, tmp_path, monkeypatch):
-    from arch_assistant.notify import Notifier
-    from arch_assistant.tray import TrayApp
+    monkeypatch.setattr(C, "template_summary", lambda findings: Summary("H", "B", []))
     apps = []
 
     def make():
-        cfg, state = _env(tmp_path, monkeypatch)
-        transport = FakeTransport()
-        app = TrayApp(cfg, state, LOG, notifier=Notifier(transport=transport))
-        app.timer.stop()
+        app, transport = make_tray(tmp_path, LOG)
         apps.append(app)
         return app, transport
 
     yield make
-    for app in apps:   # tear Qt objects down explicitly so interpreter exit does not race their destructors
-        if app.dialog is not None:
-            app.dialog.close()
-        app.tray.hide()
-        app.tray.setContextMenu(None)
-        app.menu.deleteLater()
-        app.tray.deleteLater()
-        app.deleteLater()
-    qapp.processEvents()
+    for app in apps:
+        close_tray(app, qapp)
 
 
 def test_tray_recovers_from_a_crashing_cycle(qapp, tray_factory, monkeypatch):
     app, _ = tray_factory()
     monkeypatch.setattr(app.cycle, "run", lambda only=None: (_ for _ in ()).throw(RuntimeError("boom")))
     app.check_now()
-    assert _wait(qapp, lambda: not app.busy)
+    assert wait_until(qapp, lambda: not app.busy)
 
 
 def test_tray_recovers_from_a_crashing_action(qapp, tray_factory, monkeypatch):
@@ -254,7 +215,7 @@ def test_tray_recovers_from_a_crashing_action(qapp, tray_factory, monkeypatch):
     p = C.Pending(Finding("orphans", "low", "T", "S", (), ()), Action("remove-orphans", "Remove"))
     monkeypatch.setattr(app.cycle, "run_pending", lambda p: (_ for _ in ()).throw(RuntimeError("boom")))
     app.run_pending(p)
-    assert _wait(qapp, lambda: not app.busy)
+    assert wait_until(qapp, lambda: not app.busy)
     assert transport.calls and "failed" in transport.calls[-1][3]
 
 
@@ -275,7 +236,7 @@ def test_tray_notification_uses_icon_file(qapp, tray_factory, monkeypatch):
 
 
 def test_pending_dialog_lists_and_runs(qapp):
-    from arch_assistant.tray import PendingDialog
+    from arch_assistant.ui.pending_dialog import PendingDialog
     p = C.Pending(Finding("orphans", "low", "3 orphans", "S", (), ()), Action("remove-orphans", "Remove orphans"), "needs care")
     ran, declined = [], []
     dlg = PendingDialog([p], on_run=lambda p, auto: ran.append((p, auto)), on_decline=declined.append)
@@ -299,6 +260,6 @@ def test_tray_run_pending_with_auto_sets_mode(qapp, tray_factory, monkeypatch):
     p = C.Pending(Finding("orphans", "low", "T", "S", (), ()), Action("remove-orphans", "Remove"))
     monkeypatch.setattr(app.cycle, "run_pending", lambda p: (__import__("arch_assistant.model", fromlist=["ActionResult"]).ActionResult("remove-orphans", True, "ok", "", 0.1), []))
     app.run_pending(p, auto=True)
-    assert _wait(qapp, lambda: not app.busy)
+    assert wait_until(qapp, lambda: not app.busy)
     assert app.cfg.actions["remove-orphans"] == "auto"
     assert (app.cfg.config_dir / "actions.toml").read_text().count('remove-orphans = "auto"') == 1

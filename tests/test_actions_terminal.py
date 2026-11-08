@@ -33,9 +33,9 @@ def test_terminal_run_keeps_result_contract(tmp_path, shim):
 
 def test_terminal_run_reports_failure_and_args(tmp_path, shim):
     shim.cmd("ghostty", script=FAKE_TERMINAL)
-    _action(tmp_path, "remove-package", 'echo "Removal of $1 failed"\necho "error: target" >&2\nexit 1\n')
-    r = A.run_action_in_terminal(tmp_path, Action("remove-package", "Remove package", ("vlc",)), LOG, poll_s=0.05)
-    assert not r.ok and r.output == "Removal of vlc failed" and "error: target" in r.detail
+    _action(tmp_path, "uninstall", 'echo "Removal of $1 failed"\necho "error: target" >&2\nexit 1\n')
+    r = A.run_action_in_terminal(tmp_path, Action("uninstall", "Uninstall packages", ("repo:vlc",)), LOG, poll_s=0.05)
+    assert not r.ok and r.output == "Removal of repo:vlc failed" and "error: target" in r.detail
 
 
 def test_closed_window_is_a_failure(tmp_path, shim):

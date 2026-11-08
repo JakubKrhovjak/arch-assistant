@@ -6,7 +6,6 @@ from arch_assistant.model import Action
 
 ACTIONS = Path(__file__).resolve().parent.parent / "actions"
 LOG = logging.getLogger("test")
-SUDO = 'cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n'
 
 
 def _mk(d, size_kb=4):

@@ -8,9 +8,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Callable
 
 from .config import Config, Mode
 from .model import Action, ActionResult, Finding
@@ -18,11 +18,13 @@ from .model import Action, ActionResult, Finding
 TIMEOUTS: dict[str, float] = {"update": 1800, "uninstall": 900, "install": 1800}
 DEFAULT_TIMEOUT = 300
 # Checks the tray runs right after an action finishes (regardless of its result).
-POST_HOOKS: dict[str, tuple[str, ...]] = {"update": ("secure-boot", "reboot-needed")}
+# A kernel or bootloader can come with an install as well as with an update (new UKI to sign, reboot needed).
+POST_HOOKS: dict[str, tuple[str, ...]] = {"update": ("secure-boot", "reboot-needed"),
+                                         "install": ("secure-boot", "reboot-needed")}
 # Actions that may never run without a click, whatever the configured mode says. The system update only
-# runs from the Updates tab, uninstalling from the Installed tab and installing from the Browse tab, where the
-# packages are reviewed and picked.
-NEVER_AUTO = {"remove-package", "remove-driver-packages", "pacdiff", "update", "uninstall", "install"}
+# runs from the Updates tab and installing from the Browse tab, where the packages are reviewed and picked;
+# uninstalling (Installed tab, unused-apps) always shows the full removal set first.
+NEVER_AUTO = {"remove-driver-packages", "pacdiff", "update", "uninstall", "install"}
 VM_SENSITIVE = ("qemu*", "libvirt*")
 
 
@@ -35,7 +37,7 @@ def _command(actions_dir: Path, action: Action) -> list[str] | None:
     return [*cmd, *action.args]
 
 
-def _result(action: Action, returncode: int, stdout: str, stderr: str, start: float,
+def _result(action: Action, returncode: int, stdout: str, stderr: str, *, start: float,
             log: logging.Logger) -> ActionResult:
     """stdout = short result (first 3 lines go to the popup), the rest and stderr = detail (log)."""
     lines = stdout.strip().splitlines()
@@ -57,7 +59,7 @@ def run_action(actions_dir: Path, action: Action, log: logging.Logger) -> Action
     log.info("action %s start args=%s", action.id, list(action.args))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=timeout, env=os.environ.copy(), check=False)
+                              timeout=timeout, env=_action_env(), check=False)
     except subprocess.TimeoutExpired:
         msg = f"Action {action.id} exceeded {timeout / 60:g} min"
         log.error(msg)
@@ -65,13 +67,13 @@ def run_action(actions_dir: Path, action: Action, log: logging.Logger) -> Action
     except OSError as e:
         log.error("action %s cannot start: %s", action.id, e)
         return ActionResult(action.id, False, f"Action {action.id} cannot start: {e}", "", time.monotonic() - start)
-    return _result(action, proc.returncode, proc.stdout, proc.stderr, start, log)
+    return _result(action, proc.returncode, proc.stdout, proc.stderr, start=start, log=log)
 
 
 # Actions that take long enough to be worth watching: a click runs them in a terminal window.
 TERMINAL_ACTIONS = frozenset({"update", "refresh-mirrors", "clean-pkg-cache", "remove-orphans",
-                              "remove-package", "remove-driver-packages", "uninstall", "install"})
-TERMINAL = "ghostty"
+                              "remove-driver-packages", "uninstall", "install"})
+TERMINAL = "ghostty"   # also in assets/dependencies.txt, so it is installed and never offered for uninstall
 
 # Runs inside the terminal: the action's stderr (pacman/yay output) is shown live and saved, stdout
 # (the short result) is saved and shown at the end; the exit code is written last, atomically, and is
@@ -88,6 +90,12 @@ echo
 if [ "$status" -eq 0 ]; then echo "Done."; else echo "Failed (exit $status)."; fi
 read -rp "Press Enter to close..." _
 '''
+
+
+def _action_env() -> dict[str, str]:
+    """The environment of an action script: this one, plus AA_TERMINAL (the terminal pacdiff.sh opens) unless the
+    user set it."""
+    return {"AA_TERMINAL": TERMINAL, **os.environ}
 
 
 def terminal_available(env: dict[str, str] | None = None) -> bool:
@@ -130,7 +138,7 @@ def run_action_in_terminal(actions_dir: Path, action: Action, log: logging.Logge
         argv = [TERMINAL, f"--title=Arch Assistant: {action.label}", "-e", "bash", "-c", TERMINAL_WRAPPER,
                 "arch-assistant", str(out), str(err), str(rc), str(pid), *cmd]
         try:
-            subprocess.Popen(argv, env=os.environ.copy(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            subprocess.Popen(argv, env=_action_env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
         except OSError as e:
             log.error("action %s: terminal cannot start: %s", action.id, e)
@@ -155,7 +163,7 @@ def run_action_in_terminal(actions_dir: Path, action: Action, log: logging.Logge
             code = int(rc.read_text().strip())
         except ValueError:
             code = 1
-        return _result(action, code, _read(out), _read(err), start, log)
+        return _result(action, code, _read(out), _read(err), start=start, log=log)
 
 
 def _read(path: Path) -> str:

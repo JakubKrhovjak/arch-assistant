@@ -1,20 +1,10 @@
 """Dialog stays open while an action runs (busy row, row disappears on success); Details window."""
 import logging
-import os
-
-import pytest
 
 from arch_assistant import cycle as C
 from arch_assistant.model import Action, Finding
 
 LOG = logging.getLogger("test")
-
-
-@pytest.fixture
-def qapp():
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtWidgets import QApplication
-    return QApplication.instance() or QApplication([])
 
 
 def _pending(fid="orphans", aid="remove-orphans"):
@@ -24,7 +14,7 @@ def _pending(fid="orphans", aid="remove-orphans"):
 # --- dialog behaviour --------------------------------------------------------------------------
 
 def test_dialog_run_keeps_window_open_and_marks_row_busy(qapp):
-    from arch_assistant.tray import PendingDialog
+    from arch_assistant.ui.pending_dialog import PendingDialog
     p = _pending()
     ran = []
     dlg = PendingDialog([p], on_run=lambda p, auto: ran.append(p), on_decline=lambda p: None)
@@ -42,7 +32,7 @@ def test_dialog_run_keeps_window_open_and_marks_row_busy(qapp):
 
 
 def test_dialog_finish_row_success_removes_row_failure_reenables(qapp):
-    from arch_assistant.tray import PendingDialog
+    from arch_assistant.ui.pending_dialog import PendingDialog
     a, b = _pending("orphans"), _pending("coredumps", "clean-coredumps")
     dlg = PendingDialog([a, b], on_run=lambda p, auto: None, on_decline=lambda p: None)
     dlg.set_running(a)
@@ -58,7 +48,7 @@ def test_dialog_finish_row_success_removes_row_failure_reenables(qapp):
 
 
 def test_dialog_decline_removes_row_only(qapp):
-    from arch_assistant.tray import PendingDialog
+    from arch_assistant.ui.pending_dialog import PendingDialog
     a, b = _pending("orphans"), _pending("coredumps", "clean-coredumps")
     declined = []
     dlg = PendingDialog([a, b], on_run=lambda p, auto: None, on_decline=declined.append)
@@ -76,7 +66,7 @@ UPDATE_ITEMS = (
 
 
 def test_dialog_details_button_only_for_findings_with_items(qapp):
-    from arch_assistant.tray import PendingDialog
+    from arch_assistant.ui.pending_dialog import PendingDialog
     plain = _pending()
     updates = C.Pending(Finding("updates", "high", "3 pending updates", "S", UPDATE_ITEMS, ()), Action("update", "Update system"))
     dlg = PendingDialog([plain, updates], on_run=lambda p, auto: None, on_decline=lambda p: None)
@@ -96,5 +86,5 @@ def test_dialog_details_button_only_for_findings_with_items(qapp):
 
 
 def test_format_item_falls_back_to_key_values_for_other_items():
-    from arch_assistant.tray import format_item
+    from arch_assistant.ui.pending_dialog import format_item
     assert format_item({"path": "/var/cache", "size": "2G"}) == "path=/var/cache, size=2G"

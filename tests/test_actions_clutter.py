@@ -1,6 +1,4 @@
 import logging
-import os
-import stat
 from pathlib import Path
 
 from arch_assistant.actions import run_action
@@ -8,7 +6,6 @@ from arch_assistant.model import Action
 
 ACTIONS = Path(__file__).resolve().parent.parent / "actions"
 LOG = logging.getLogger("test")
-SUDO = 'cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n'
 
 
 def _mk(d, size_kb=4):
@@ -96,7 +93,7 @@ def test_clean_user_cache_removes_safe(tmp_path, monkeypatch):
 
 
 def test_clean_pkg_cache(shim, monkeypatch):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("paccache", "==> finished: 12 packages removed (disk space saved: 3.2 GiB)\n")
     shim.cmd("yay", "")
     state = shim.bin_dir / "du.state"
@@ -108,7 +105,7 @@ def test_clean_pkg_cache(shim, monkeypatch):
 
 
 def test_remove_orphans(shim):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("pacman", "")
     r = run_action(ACTIONS, Action("remove-orphans", "Remove orphans", ("a", "b")), LOG)
     assert r.ok and r.output == "Removed 2 orphan packages: a, b"
@@ -116,7 +113,7 @@ def test_remove_orphans(shim):
 
 
 def test_remove_orphans_failure(shim):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("pacman", "", exit_code=1, stderr="error: target not found: a")
     r = run_action(ACTIONS, Action("remove-orphans", "Remove orphans", ("a",)), LOG)
     assert not r.ok and r.output == "Removing orphans failed: error: target not found: a"

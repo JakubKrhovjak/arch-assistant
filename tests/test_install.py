@@ -5,16 +5,16 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def test_install_script_syntax():
-    assert subprocess.run(["bash", "-n", str(REPO / "install.sh")]).returncode == 0
+    assert subprocess.run(["bash", "-n", str(REPO / "install.sh")], check=False).returncode == 0
 
 
 def test_install_script_shellcheck():
-    r = subprocess.run(["shellcheck", str(REPO / "install.sh")], capture_output=True, text=True)
+    r = subprocess.run(["shellcheck", "-x", str(REPO / "install.sh")], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stdout
 
 
 def test_install_dry_run_lists_steps():
-    r = subprocess.run([str(REPO / "install.sh"), "--dry-run"], capture_output=True, text=True)
+    r = subprocess.run([str(REPO / "install.sh"), "--dry-run"], capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stderr
     steps = [l for l in r.stdout.splitlines() if l[:1].isdigit()]
     assert len(steps) == 7
@@ -22,7 +22,7 @@ def test_install_dry_run_lists_steps():
 
 
 def test_install_dry_run_no_octopi_skips_step():
-    r = subprocess.run([str(REPO / "install.sh"), "--dry-run", "--no-octopi"], capture_output=True, text=True)
+    r = subprocess.run([str(REPO / "install.sh"), "--dry-run", "--no-octopi"], capture_output=True, text=True, check=False)
     assert r.returncode == 0
     assert not any("octopi" in l and l[:1].isdigit() for l in r.stdout.splitlines())
 

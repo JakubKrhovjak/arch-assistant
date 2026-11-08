@@ -8,19 +8,19 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Callable
+
+from .inventory import flatpak_apps
+from .packages import SOURCE_LABELS, SOURCES, package_arg, run_readonly
 
 AUR_RPC = "https://aur.archlinux.org/rpc/v5/search/{term}?by=name-desc"
 AUR_TIMEOUT = 15
-COMMAND_TIMEOUT = 60
 MIN_TERM = 2
 MAX_PER_SOURCE = 150
-SOURCES = ("repo", "aur", "flatpak")
 # Flatpak refs that are not apps a user installs on their own
 FLATPAK_SKIP_SUFFIXES = (".Debug", ".Locale", ".Sources")
 REPO_LINE_RE = re.compile(r"^(?P<repo>[\w.-]+)/(?P<name>\S+) (?P<version>\S+)(?P<rest>.*)$")
@@ -43,9 +43,9 @@ class Result:
         return (self.source, self.id)
 
     @property
-    def install_arg(self) -> str:
+    def arg(self) -> str:
         """Argument of actions/install.sh."""
-        return f"{self.source}:{self.id}"
+        return package_arg(self.source, self.id)
 
 
 @dataclass
@@ -58,14 +58,6 @@ class SearchResult:
 def normalize(term: str) -> str:
     """Letters, digits, spaces and the characters package names use; everything else is dropped."""
     return " ".join(re.sub(r"[^A-Za-z0-9 @._+-]", " ", term).split())
-
-
-def _run(cmd: list[str], codes: tuple[int, ...] = (0,)) -> str | None:
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=COMMAND_TIMEOUT, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return proc.stdout if proc.returncode in codes else None
 
 
 def _regex(word: str) -> str:
@@ -123,12 +115,12 @@ def relevance(r: Result, term: str) -> tuple:
 
 def fetch_json(url: str) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": "arch-assistant"})
-    with urllib.request.urlopen(req, timeout=AUR_TIMEOUT) as resp:   # noqa: S310 (fixed https URL)
+    with urllib.request.urlopen(req, timeout=AUR_TIMEOUT) as resp:   # a fixed https URL
         return json.load(resp)
 
 
 def _search_repo(words: list[str], installed: set[str]) -> list[Result]:
-    text = _run(["pacman", "-Ss", "--", *(_regex(w) for w in words)], codes=(0, 1))   # 1 = no match
+    text = run_readonly(["pacman", "-Ss", "--", *(_regex(w) for w in words)], codes=(0, 1))   # 1 = no match
     if text is None:
         raise RuntimeError("pacman -Ss failed")
     return parse_pacman_ss(text, installed)
@@ -145,18 +137,18 @@ def _search_aur(words: list[str], installed: set[str], fetch: Callable[[str], di
 
 
 def _search_flatpak(words: list[str], installed_apps: Callable[[], set[str]]) -> list[Result]:
-    text = _run(["flatpak", "search", "--columns=application,name,description,version,remotes", " ".join(words)])
+    text = run_readonly(["flatpak", "search", "--columns=application,name,description,version,remotes", " ".join(words)])
     if text is None:
         raise RuntimeError("flatpak search failed")
     return parse_flatpak_search(text, installed_apps())
 
 
 def _installed_packages() -> set[str]:
-    return set((_run(["pacman", "-Qq"]) or "").split())
+    return set((run_readonly(["pacman", "-Qq"]) or "").split())
 
 
 def _installed_flatpaks() -> set[str]:
-    return set((_run(["flatpak", "list", "--app", "--columns=application"]) or "").split())
+    return {r.id for r in flatpak_apps()}
 
 
 def search(term: str, fetch: Callable[[str], dict] = fetch_json) -> SearchResult:
@@ -170,7 +162,6 @@ def search(term: str, fetch: Callable[[str], dict] = fetch_json) -> SearchResult
     jobs = {"repo": lambda: _search_repo(words, installed),
             "aur": lambda: _search_aur(words, installed, fetch),
             "flatpak": lambda: _search_flatpak(words, _installed_flatpaks)}
-    labels = {"repo": "Arch repos", "aur": "AUR", "flatpak": "Flatpak"}
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futures = {source: pool.submit(job) for source, job in jobs.items()}
         for source in SOURCES:
@@ -178,6 +169,6 @@ def search(term: str, fetch: Callable[[str], dict] = fetch_json) -> SearchResult
                 rows = sorted(futures[source].result(), key=lambda r: relevance(r, term))
                 out.results += rows[:MAX_PER_SOURCE]
             except Exception as e:   # one source failing must not hide the others
-                out.errors.append(f"{labels[source]}: {e}")
+                out.errors.append(f"{SOURCE_LABELS[source]}: {e}")
     out.results.sort(key=lambda r: relevance(r, term)[0])   # stable: keeps the per-source order within a rank
     return out

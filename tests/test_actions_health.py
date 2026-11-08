@@ -17,7 +17,7 @@ def test_restart_user_unit(shim):
 
 
 def test_restart_system_unit_uses_sudo(shim):
-    shim.cmd("sudo", script='cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n')
+    shim.sudo()
     shim.cmd("systemctl", "")
     r = run_action(ACTIONS, Action("restart-unit", "Restart unit", ("system", "x.service")), LOG)
     assert r.ok and r.output == "Unit x.service restarted"
@@ -36,7 +36,7 @@ def test_restart_unit_rejects_bad_args():
 
 
 def test_clean_coredumps(shim):
-    shim.cmd("sudo", script='cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n')
+    shim.sudo()
     shim.cmd("find", script='if [[ " $* " == *" -delete "* ]]; then exit 0; fi\nprintf "a\\nb\\nc\\n"\n')
     shim.cmd("du", script='if [[ -f "$AA_DU_STATE" ]]; then echo "0\t/var/lib/systemd/coredump"; else touch "$AA_DU_STATE"; echo "2550\t/var/lib/systemd/coredump"; fi\n')
     import os

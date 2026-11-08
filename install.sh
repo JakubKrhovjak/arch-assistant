@@ -21,8 +21,14 @@ done
 step() { echo "$1. $2"; }
 run() { [[ $dry_run -eq 1 ]] || "$@"; }
 
-step 1 "Install system packages: pyside6 pacman-contrib arch-audit python-jeepney shellcheck (sudo)"
-run sudo pacman -S --needed --noconfirm pyside6 pacman-contrib arch-audit python-jeepney shellcheck
+# the app's runtime packages have one home, assets/dependencies.txt (the uninstall guard reads it too)
+# shellcheck source-path=SCRIPTDIR source=actions/_lists.sh
+source "$here/actions/_lists.sh"   # list_file
+mapfile -t deps < <(list_file "$here/assets/dependencies.txt")
+step 1 "Install system packages: ${deps[*]} shellcheck (sudo), and mark ${deps[*]} as explicitly installed"
+run sudo /usr/bin/pacman -S --needed --noconfirm "${deps[@]}" shellcheck
+# explicitly installed: `pacman -Rns` of a package that pulled one of them in can no longer take it along
+run sudo /usr/bin/pacman -D --asexplicit "${deps[@]}"
 
 step 2 "Create venv $venv (system site packages for PySide6) and install the package"
 if [[ $dry_run -eq 0 ]]; then
@@ -81,7 +87,7 @@ if [[ $remove_octopi -eq 1 ]]; then
         pkill -x octopi-notifier 2>/dev/null || true
         rm -f "$HOME/.config/autostart/octopi-notifier.desktop"
         if pacman -Q octopi >/dev/null 2>&1; then
-            sudo pacman -Rns --noconfirm octopi
+            sudo /usr/bin/pacman -Rns --noconfirm octopi
         fi
     fi
 else
@@ -90,7 +96,7 @@ fi
 
 step 7 "Start arch-assistant in the background if it is not running"
 if [[ $dry_run -eq 0 ]]; then
-    if ! pgrep -f -- "-m arch_assistant$" >/dev/null 2>&1; then
+    if ! pgrep --full "[-]m arch_assistant$" >/dev/null 2>&1; then   # the bracket keeps pgrep from matching this shell
         setsid "$here/bin/arch-assistant" >/dev/null 2>&1 < /dev/null &
         disown || true
         echo "   started"

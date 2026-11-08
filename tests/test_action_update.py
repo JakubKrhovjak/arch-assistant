@@ -20,14 +20,17 @@ exit 0
 '''
 
 
-def _setup(shim, pacman_body, yay_list="", pacman_log="", flatpak_rc=0):
+def _setup(shim, pacman_body, *, yay_list="", pacman_log="", flatpak_rc=0, user_apps="", yay_rc=0):
+    # `flatpak list --user` names the user installation's refs; everything else is the system installation
     shim.cmd("flatpak", script=(
         'if [[ "$1" == "remote-ls" ]]; then printf "com.google.Chrome\\t1\\norg.x\\t2\\n"; exit 0; fi\n'
+        f'if [[ "$1" == "list" ]]; then printf %s {_q(user_apps)}; exit 0; fi\n'
         + ('echo "error: Flatpak broke" >&2; exit 1\n' if flatpak_rc else 'echo "Updating..."; exit 0\n')))
     # sudo shim: strip the absolute path so the pacman shim on PATH is used
-    shim.cmd("sudo", script='cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n')
+    shim.sudo()
     shim.cmd("pacman", script=pacman_body)
-    shim.cmd("yay", script=f'if [[ "$1" == "-Qua" ]]; then printf %s {_q(yay_list)}; exit 0; fi\necho " there is nothing to do"\nexit 0\n')
+    yay_run = 'echo "error: PKGBUILD of x failed" >&2; exit 1\n' if yay_rc else 'echo " there is nothing to do"\nexit 0\n'
+    shim.cmd("yay", script=f'if [[ "$1" == "-Qua" ]]; then printf %s {_q(yay_list)}; exit 0; fi\n{yay_run}')
     log = shim.bin_dir / "pacman.log"
     log.write_text(pacman_log)
     return {"AA_PACMAN_LOG": str(log)}
@@ -43,7 +46,20 @@ def test_update_success_counts_packages(shim, monkeypatch):
     r = run_action(ACTIONS, Action("update", "Update system"), LOG)
     assert r.ok, r.detail
     assert r.output.splitlines()[0] == "Updated 3 packages (repo), 1 (AUR) and 2 Flatpaks"
-    assert any(c.startswith("sudo /usr/bin/flatpak update -y --noninteractive") for c in shim.calls())
+    calls = shim.calls()
+    assert "sudo /usr/bin/flatpak update --system -y --noninteractive" in calls
+    assert not any("--user" in c and "update" in c for c in calls)     # nothing in the user installation
+
+
+def test_update_full_also_updates_the_user_installation_without_sudo(shim, monkeypatch):
+    env = _setup(shim, PACMAN_OK, user_apps="org.user.App\n")
+    monkeypatch.setenv("AA_PACMAN_LOG", env["AA_PACMAN_LOG"])
+    r = run_action(ACTIONS, Action("update", "Update system"), LOG)
+    assert r.ok, r.detail
+    calls = shim.calls()
+    assert "sudo /usr/bin/flatpak update --system -y --noninteractive" in calls
+    assert "flatpak update --user -y --noninteractive" in calls
+    assert not any(c.startswith("sudo") and "--user" in c for c in calls)
 
 
 def test_update_flatpak_failure_is_reported(shim, monkeypatch):
@@ -76,20 +92,20 @@ def test_update_failure_first_error_line(shim, monkeypatch):
 
 # --- selective update (args from the Updates window) ---------------------------------------------
 
-def _run(shim, monkeypatch, *args, yay_list=""):
-    env = _setup(shim, PACMAN_OK, yay_list=yay_list)
+def _run(shim, monkeypatch, *args, yay_list="", **setup):
+    env = _setup(shim, PACMAN_OK, yay_list=yay_list, **setup)
     monkeypatch.setenv("AA_PACMAN_LOG", env["AA_PACMAN_LOG"])
     return run_action(ACTIONS, Action("update", "Update system", tuple(args)), LOG)
 
 
 def test_update_selected_repo_aur_and_flatpak(shim, monkeypatch):
-    r = _run(shim, monkeypatch, "repo", "aur:mbpoll-git", "aur:yay-bin", "flatpak:org.x")
+    r = _run(shim, monkeypatch, "repo:linux", "repo:vim", "aur:mbpoll-git", "aur:yay-bin", "flatpak:org.x")
     assert r.ok, r.detail
     assert r.output.splitlines()[0] == "Updated 3 packages (repo), 2 (AUR) and 1 Flatpaks"
     calls = shim.calls()
-    assert "sudo /usr/bin/pacman -Syu --noconfirm" in calls
+    assert "sudo /usr/bin/pacman -Syu --noconfirm" in calls            # every repo package, never a partial upgrade
     assert "yay -S --aur --noconfirm mbpoll-git yay-bin" in calls
-    assert "sudo /usr/bin/flatpak update -y --noninteractive org.x" in calls
+    assert "sudo /usr/bin/flatpak update --system -y --noninteractive org.x" in calls
     assert not any(c.startswith(("yay -Sua", "yay -Qua", "flatpak remote-ls")) for c in calls)
 
 
@@ -105,19 +121,36 @@ def test_update_selected_flatpak_only(shim, monkeypatch):
     r = _run(shim, monkeypatch, "flatpak:com.google.Chrome", "flatpak:org.x")
     assert r.ok, r.detail
     assert r.output.splitlines()[0] == "Updated 0 packages (repo), 0 (AUR) and 2 Flatpaks"
-    assert shim.calls() == ["sudo /usr/bin/flatpak update -y --noninteractive com.google.Chrome org.x",
-                            "flatpak update -y --noninteractive com.google.Chrome org.x"]
+    assert shim.calls() == ["flatpak list --user --columns=application",
+                            "sudo /usr/bin/flatpak update --system -y --noninteractive com.google.Chrome org.x",
+                            "flatpak update --system -y --noninteractive com.google.Chrome org.x"]
+
+
+def test_update_selected_user_flatpak_runs_without_sudo(shim, monkeypatch):
+    r = _run(shim, monkeypatch, "flatpak:com.google.Chrome", "flatpak:org.user.App", user_apps="org.user.App\n")
+    assert r.ok, r.detail
+    calls = shim.calls()
+    assert "sudo /usr/bin/flatpak update --system -y --noninteractive com.google.Chrome" in calls
+    assert "flatpak update --user -y --noninteractive org.user.App" in calls
+    assert not any(c.startswith("sudo") and "org.user.App" in c for c in calls)
+
+
+def test_update_selected_aur_failure_names_what_was_done(shim, monkeypatch):
+    r = _run(shim, monkeypatch, "repo:vim", "aur:x", "flatpak:org.x", yay_rc=1)
+    assert not r.ok
+    assert r.output == "Updated 3 packages (repo); AUR update failed: error: PKGBUILD of x failed"
+    assert not any("flatpak update" in c for c in shim.calls())       # stops at the first failure
 
 
 def test_update_selected_repo_only_leaves_aur_and_flatpak(shim, monkeypatch):
-    r = _run(shim, monkeypatch, "repo", yay_list="aur/x 1 -> 2\n")
+    r = _run(shim, monkeypatch, "repo:vim", yay_list="aur/x 1 -> 2\n")
     assert r.ok, r.detail
     assert r.output.splitlines()[0] == "Updated 3 packages (repo), 0 (AUR) and 0 Flatpaks"
     assert not any(c.startswith(("yay", "sudo /usr/bin/flatpak")) for c in shim.calls())
 
 
 def test_update_rejects_bad_arguments_before_running_anything(shim, monkeypatch):
-    for bad in ("aur:--noconfirm", "flatpak:", "everything", "aur:a b"):
+    for bad in ("aur:--noconfirm", "flatpak:", "everything", "repo", "pkg:vim", "aur:a b"):
         shim.calls_file.unlink(missing_ok=True)
         r = _run(shim, monkeypatch, bad)
         assert not r.ok and r.output.startswith("Update failed:"), bad

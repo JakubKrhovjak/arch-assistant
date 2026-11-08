@@ -6,12 +6,11 @@ from arch_assistant.model import Action
 
 ACTIONS = Path(__file__).resolve().parent.parent / "actions"
 LOG = logging.getLogger("test")
-SUDO = 'cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n'
 
 
 def test_refresh_mirrors(shim, tmp_path):
     ml = tmp_path / "mirrorlist"
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("reflector", script=f'printf "Server = a\\nServer = b\\n# c\\n" > {ml}\n')
     import os
     os.environ["AA_MIRRORLIST"] = str(ml)
@@ -26,7 +25,7 @@ def test_refresh_mirrors(shim, tmp_path):
 
 
 def test_refresh_mirrors_failure(shim):
-    shim.cmd("sudo", script=SUDO)
+    shim.sudo()
     shim.cmd("reflector", "", exit_code=1, stderr="error: no mirrors")
     r = run_action(ACTIONS, Action("refresh-mirrors", "Refresh mirrors"), LOG)
     assert not r.ok and r.output == "Mirrorlist refresh failed: error: no mirrors"
