@@ -2,7 +2,11 @@
 # Check: .pacnew / .pacsave files waiting to be merged (pacdiff -o).
 set -uo pipefail
 
-files=$(sudo /usr/bin/pacdiff -o 2>/dev/null || true)
+# shellcheck source-path=SCRIPTDIR source=_root.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_root.sh"
+
+files=$(root /usr/bin/pacdiff -o)
+exit_if_refused $?
 
 FILES="$files" python3 - <<'PY'
 import json, os

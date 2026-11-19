@@ -22,6 +22,11 @@ The installer needs `sudo` (packages, removing `octopi`). It creates a venv in
 entry and copies the example config. Root for the actions comes from the existing passwordless
 `sudo` on this machine; every privileged command uses an absolute path and fixed arguments.
 
+The checks that read root-only state (`pacnew`: `pacdiff -o`, `secure-boot`: `sbctl verify` and `find` on the ESP,
+`timeshift`: `timeshift --list`, `docker-vm`: `qemu-img info`) run unattended at login and use `sudo -n`. Where sudo
+needs a password they fail with "needs passwordless sudo for: …" (logged, no notification) instead of prompting:
+a prompt without a tty counts as a failed login in `pam_faillock`, and three of them lock the account for ten minutes.
+
 ## Configuration
 
 `~/.config/arch-assistant/config.toml` (see `assets/config.example.toml` for every key):

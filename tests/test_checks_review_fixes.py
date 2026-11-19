@@ -51,7 +51,7 @@ esac
     shim.cmd("qemu-img", f"image: {vm}/a.qcow2\n")
     f = check_runner.run("docker-vm", {"AA_VM_DIR": str(vm)})
     assert f.severity == "none"
-    assert any(c.startswith("sudo /usr/bin/qemu-img info -U --backing-chain") for c in shim.calls())
+    assert any(c.startswith("sudo -n /usr/bin/qemu-img info -U --backing-chain") for c in shim.calls())
 
 
 def test_docker_vm_virsh_failure_fails_the_check(shim, check_runner, tmp_path):

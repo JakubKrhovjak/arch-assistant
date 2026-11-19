@@ -4,6 +4,9 @@
 # the active VM disks are never reported as unused by mistake.
 set -uo pipefail
 
+# shellcheck source-path=SCRIPTDIR source=_root.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_root.sh"
+
 vm_dir="${AA_VM_DIR:-/mnt/data/vm}"
 docker_df=""
 if docker info >/dev/null 2>&1; then
@@ -22,7 +25,7 @@ if command -v virsh >/dev/null 2>&1; then
             [[ "$src" != *.qcow2 ]] && continue
             used_images+="$src"$'\n'
             # -U (force-share) reads images a running QEMU holds open
-            if ! chain=$(sudo /usr/bin/qemu-img info -U --backing-chain "$src" 2>&1); then
+            if ! chain=$(root /usr/bin/qemu-img info -U --backing-chain "$src" 2>&1); then
                 echo "qemu-img info failed for $src: $chain" >&2
                 exit 1
             fi

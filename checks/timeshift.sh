@@ -2,8 +2,12 @@
 # Check: Timeshift has a snapshot and the latest one is at most 2 days old.
 set -uo pipefail
 
+# shellcheck source-path=SCRIPTDIR source=_root.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_root.sh"
+
 MAX_AGE_DAYS=2
-listing=$(sudo /usr/bin/timeshift --list 2>/dev/null || true)
+listing=$(root /usr/bin/timeshift --list)
+exit_if_refused $?
 
 LISTING="$listing" MAX_AGE="$MAX_AGE_DAYS" python3 - <<'PY'
 import json, os, re

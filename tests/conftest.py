@@ -37,8 +37,12 @@ class Shim:
         return path
 
     def sudo(self) -> Path:
-        """A sudo that drops the absolute path (/usr/bin/pacman → pacman) and runs the shim of that name."""
-        return self.cmd("sudo", script='cmd=$(basename "$1"); shift; exec "$cmd" "$@"\n')
+        """A sudo that takes -n, drops the absolute path (/usr/bin/pacman → pacman) and runs the shim of that name."""
+        return self.cmd("sudo", script='[[ $1 == -n ]] && shift\ncmd=$(basename "$1"); shift; exec "$cmd" "$@"\n')
+
+    def sudo_needing_password(self) -> Path:
+        """A sudo on a machine without a NOPASSWD rule: it refuses at once, the way `sudo -n` does."""
+        return self.cmd("sudo", stderr="sudo: a password is required\n", exit_code=1)
 
     def pacman_removal(self, targets: str, groups: str = "plasma kwin\n", owners: str = "zsh\nbash\n",
                        rns_stderr: str = "") -> Path:

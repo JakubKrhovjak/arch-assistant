@@ -6,10 +6,16 @@ set -uo pipefail
 
 esp="${AA_ESP:-$(bootctl -p 2>/dev/null || echo /boot/efi)}"
 state_dir="${AA_STATE_DIR:-.}"
-verify=$(sudo /usr/bin/sbctl verify 2>&1)
+
+# shellcheck source-path=SCRIPTDIR source=_root.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_root.sh"
+
+verify=$(root /usr/bin/sbctl verify 2>&1)
 verify_rc=$?
+exit_if_refused "$verify_rc" "$verify"
 # the ESP is usually mounted root-only, so list it through sudo
-ukis=$(sudo /usr/bin/find "$esp/EFI/Linux" -maxdepth 1 -name '*.efi' 2>/dev/null || true)
+ukis=$(root /usr/bin/find "$esp/EFI/Linux" -maxdepth 1 -name '*.efi')
+exit_if_refused $?
 
 ESP="$esp" STATE_DIR="$state_dir" VERIFY="$verify" VERIFY_RC="$verify_rc" UKIS="$ukis" python3 - <<'PY'
 import json, os
