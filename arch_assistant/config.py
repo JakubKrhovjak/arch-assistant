@@ -18,7 +18,7 @@ DEFAULTS: dict = {
     # Long actions started by a click (update, cleanups) show their progress in a terminal window
     "terminal_progress": True,
     "critical_packages": [
-        "linux", "linux-lts", "linux-firmware", "systemd", "plasma-*", "kwin",
+        "linux", "linux-lts", "linux-zen", "linux-firmware", "systemd", "plasma-*", "kwin",
         "mesa", "qemu*", "libvirt*", "docker", "k3s", "com.google.Chrome",
     ],
     "thresholds": {
